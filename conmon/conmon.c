@@ -1354,8 +1354,6 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	set_conmon_logs(opt_log_level, opt_cid, opt_syslog);
-
 	oom_score_fd = open("/proc/self/oom_score_adj", O_WRONLY);
 	if (oom_score_fd < 0) {
 		ndebugf("failed to open /proc/self/oom_score_adj: %s\n", strerror(errno));
