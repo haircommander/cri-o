@@ -752,7 +752,7 @@ static void write_sync_fd(int sync_pipe_fd, int res, const char *message)
 	// if (opt_exec)
 	//	res_key = "exit_code";
 	// else
-	res_key = "pid";
+	res_key = "data";
 
 	if (message) {
 		escaped_message = escape_json_string(message);
@@ -1485,7 +1485,7 @@ int main(int argc, char *argv[])
 	// TODO FIXME breaking change
 	if (opt_attach) {
 		/* Send the command exec exit code back to the parent */
-		write_sync_fd(attach_pipe_fd, exit_status, exit_message);
+		// write_sync_fd(attach_pipe_fd, exit_status, exit_message);
 	}
 	if (attach_symlink_dir_path != NULL && unlink(attach_symlink_dir_path) == -1 && errno != ENOENT) {
 		pexit("Failed to remove symlink for attach socket directory");
