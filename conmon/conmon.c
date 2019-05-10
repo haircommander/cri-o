@@ -74,6 +74,10 @@ static gchar **opt_exit_args = NULL;
 static gboolean opt_replace_listen_pid = FALSE;
 static char *opt_log_level = NULL;
 static int opt_preserve_fds = 0;
+static char *opt_user = NULL;
+static char *opt_cwd = NULL;
+static gchar **opt_env = NULL;
+static gchar **opt_cap = NULL;
 static GOptionEntry opt_entries[] = {
 	{"terminal", 't', 0, G_OPTION_ARG_NONE, &opt_terminal, "Terminal", NULL},
 	{"stdin", 'i', 0, G_OPTION_ARG_NONE, &opt_stdin, "Stdin", NULL},
@@ -111,6 +115,10 @@ static GOptionEntry opt_entries[] = {
 	{"syslog", 0, 0, G_OPTION_ARG_NONE, &opt_syslog, "Log to syslog (use with cgroupfs cgroup manager)", NULL},
 	{"log-level", 0, 0, G_OPTION_ARG_STRING, &opt_log_level, "Print debug logs based on log level", NULL},
 	{"preserve-fds", 0, 0, G_OPTION_ARG_INT64, &opt_preserve_fds, "fds to preserve passed to runtime (only for exec)", NULL},
+	{"user", 0, 0, G_OPTION_ARG_STRING, &opt_user, "user to run a command as (only for exec)", NULL},
+	{"cwd", 0, 0, G_OPTION_ARG_STRING, &opt_cwd, "current working directory to exec command in (only for exec)", NULL},
+	{"env", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_env, "Environment variables for an exec session (only for exec)", NULL},
+	{"cap", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_cap, "Capabilities for an exec session (only for exec)", NULL},
 	{NULL}};
 
 #define CGROUP_ROOT "/sys/fs/cgroup"
@@ -1053,7 +1061,7 @@ int main(int argc, char *argv[])
 	configure_log_drivers(opt_log_path, opt_log_size_max, opt_cid, opt_name);
 
 	start_pipe_fd = get_pipe_fd_from_env("_OCI_STARTPIPE");
-	if (start_pipe_fd >= 0 && !opt_attach) {
+	if (start_pipe_fd >= 0) {
 		/* Block for an initial write to the start pipe before
 		   spawning any childred or exiting, to ensure the
 		   parent can put us in the right cgroup. */
@@ -1061,15 +1069,24 @@ int main(int argc, char *argv[])
 		if (num_read < 0) {
 			pexit("start-pipe read failed");
 		}
-		close(start_pipe_fd);
+		/* If we aren't attaching in an exec session,
+		   we don't need this anymore. */
+		if (!opt_attach)
+			close(start_pipe_fd);
 	}
 
-	if (!opt_exec)
-		if (opt_preserve_fds > 0) {
+	if (!opt_exec) {
+		if (opt_preserve_fds > 0)
 			nexit("cannot preserve fds without exec");
-			if (opt_attach)
-				nexit("--attach can only be set with --exec");
-		}
+		if (opt_attach)
+			nexit("--attach can only be set with --exec");
+		if (opt_user)
+			nexit("--user can only be set with --exec");
+		if (opt_cwd)
+			nexit("--cwd can only be set with --exec");
+		if (opt_env)
+			nexit("--env can only be set with --exec");
+	}
 
 	/* In the create-container case we double-fork in
 	   order to disconnect from the parent, as we want to
@@ -1177,6 +1194,20 @@ int main(int argc, char *argv[])
 			add_argv(runtime_argv, "--tty", NULL);
 		if (opt_preserve_fds > 0)
 			add_argv(runtime_argv, "--preserve-fds", opt_preserve_fds, NULL);
+		if (opt_user)
+			add_argv(runtime_argv, "--user", opt_user, NULL);
+		if (opt_cwd)
+			add_argv(runtime_argv, "--cwd", opt_cwd, NULL);
+		if (opt_env) {
+			size_t n_env = 0;
+			while (opt_env[n_env])
+				add_argv(runtime_argv, "--env", opt_env[n_env++], NULL);
+		}
+		if (opt_cap) {
+			size_t n_cap = 0;
+			while (opt_cap[n_cap])
+				add_argv(runtime_argv, "--cap", opt_cap[n_cap++], NULL);
+		}
 	} else {
 		char *command;
 		if (opt_restore_path)
@@ -1294,22 +1325,18 @@ int main(int argc, char *argv[])
 		// we need to wait until they attach to the console before actually execing,
 		// or else we may lose output
 		if (opt_attach) {
-			ndebug("waiting for start message from parent");
+			ndebug("exec with attach is waiting for start message from parent");
 			num_read = read(start_pipe_fd, buf, BUF_SIZE);
-			ndebug("got start message from parent. Starting exec");
+			ndebug("exec with attach got start message from parent");
 			if (num_read < 0) {
 				pexit("start-pipe read failed");
 			}
 			close(start_pipe_fd);
-		} else {
-			ndebug("no start specified, starting exec");
 		}
 
 		execv(g_ptr_array_index(runtime_argv, 0), (char **)runtime_argv->pdata);
 		exit(127);
 	}
-
-	ndebugf("hello\n");
 
 	if ((signal(SIGTERM, on_sig_exit) == SIG_ERR) || (signal(SIGQUIT, on_sig_exit) == SIG_ERR)
 	    || (signal(SIGINT, on_sig_exit) == SIG_ERR))
@@ -1347,11 +1374,7 @@ int main(int argc, char *argv[])
 	/* Setup endpoint for attach */
 	_cleanup_free_ char *attach_symlink_dir_path = NULL;
 	// TODO FIXME detach option?
-	//  TODO FIXME these were all exec before
-	// TODO FIXME resize events
 	if (opt_bundle_path != NULL) {
-		// TODO FIXME opt_socket_path is never null I think...
-		// if (opt_socket_path != NULL)
 		attach_symlink_dir_path = setup_attach_socket();
 		dummyfd = setup_terminal_control_fifo();
 
@@ -1452,13 +1475,11 @@ int main(int argc, char *argv[])
 	sync_logs();
 
 	int exit_status = -1;
-	// TODO FIXME this was removed because of breaking change down there
-	// const char *exit_message = NULL;
+	const char *exit_message = NULL;
 
 	if (timed_out) {
 		kill(container_pid, SIGKILL);
-		// TODO FIXME this was removed because of breaking change down there
-		// exit_message = "command timed out";
+		exit_message = "command timed out";
 	} else {
 		exit_status = get_exit_status(container_status);
 	}
@@ -1482,10 +1503,10 @@ int main(int argc, char *argv[])
 			break;
 	}
 
-	// TODO FIXME breaking change
-	if (opt_attach) {
+	// TODO FIXME do we still want this?
+	if (opt_exec) {
 		/* Send the command exec exit code back to the parent */
-		// write_sync_fd(attach_pipe_fd, exit_status, exit_message);
+		write_sync_fd(sync_pipe_fd, exit_status, exit_message);
 	}
 	if (attach_symlink_dir_path != NULL && unlink(attach_symlink_dir_path) == -1 && errno != ENOENT) {
 		pexit("Failed to remove symlink for attach socket directory");
