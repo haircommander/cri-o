@@ -41,6 +41,7 @@
 #define CGROUP2_SUPER_MAGIC 0x63677270
 #endif
 
+
 static volatile pid_t container_pid = -1;
 static volatile pid_t create_pid = -1;
 static gboolean opt_version = FALSE;
@@ -396,6 +397,8 @@ static void on_sig_exit(int signal)
 	raise(SIGUSR1);
 }
 
+static void container_exit_cb(G_GNUC_UNUSED GPid pid, int status, G_GNUC_UNUSED gpointer user_data);
+
 static void check_child_processes(GHashTable *pid_to_handler)
 {
 	void (*cb)(GPid, int, gpointer);
@@ -406,6 +409,7 @@ static void check_child_processes(GHashTable *pid_to_handler)
 
 		if (pid < 0 && errno == EINTR)
 			continue;
+
 		if (pid < 0 && errno == ECHILD) {
 			g_main_loop_quit(main_loop);
 			return;
@@ -420,6 +424,13 @@ static void check_child_processes(GHashTable *pid_to_handler)
 		cb = g_hash_table_lookup(pid_to_handler, &pid);
 		if (cb)
 			cb(pid, status, 0);
+		else {
+			ndebugf("couldn't  find cb for pid %d", pid);
+			if (container_status < 0 && container_pid < 0) {
+				ndebugf("container status and pid were found prior to callback being registered, setting now");
+				container_exit_cb(pid, status, 0);
+			}
+		}
 	}
 }
 
@@ -913,7 +924,9 @@ static void setup_oom_handling(int container_pid)
 
 	memory_cgroup_path = process_cgroup_subsystem_path(container_pid, "memory");
 	if (!memory_cgroup_path) {
-		nexit("Failed to get memory cgroup path");
+		// TODO FIXME is there a way I can tell if the container has in fact exited?
+		nwarn("Failed to get memory cgroup path. Container may have exited");
+		return;
 	}
 
 	_cleanup_free_ char *memory_cgroup_file_path = g_build_filename(memory_cgroup_path, "cgroup.event_control", NULL);
@@ -1216,6 +1229,10 @@ int main(int argc, char *argv[])
 			command = "create";
 
 		add_argv(runtime_argv, command, "--bundle", opt_bundle_path, "--pid-file", opt_container_pid_file, NULL);
+		if (opt_no_pivot)
+			add_argv(runtime_argv, "--no-pivot", NULL);
+		if (opt_no_new_keyring)
+			add_argv(runtime_argv, "--no-new-keyring", NULL);
 
 		if (opt_restore_path) {
 			/*
@@ -1249,13 +1266,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!opt_exec && opt_no_pivot) {
-		add_argv(runtime_argv, "--no-pivot", NULL);
-	}
-
-	if (!opt_exec && opt_no_new_keyring) {
-		add_argv(runtime_argv, "--no-new-keyring", NULL);
-	}
 
 	if (csname != NULL) {
 		add_argv(runtime_argv, "--console-socket", csname, NULL);
@@ -1391,7 +1401,8 @@ int main(int argc, char *argv[])
 		g_unix_fd_add(console_socket_fd, G_IO_IN, terminal_accept_cb, csname);
 		/* Process any SIGCHLD we may have missed before the signal handler was in place.  */
 		check_child_processes(pid_to_handler);
-		g_main_loop_run(main_loop);
+		if (container_status < 0)
+			g_main_loop_run(main_loop);
 	} else {
 		int ret;
 		/* Wait for our create child to exit with the return code. */
@@ -1439,9 +1450,7 @@ int main(int argc, char *argv[])
 	g_hash_table_insert(pid_to_handler, (pid_t *)&container_pid, container_exit_cb);
 
 	/* Send the container pid back to parent */
-	// if (!opt_exec) {
 	write_sync_fd(sync_pipe_fd, container_pid, NULL);
-	//}
 
 	setup_oom_handling(container_pid);
 
@@ -1457,8 +1466,8 @@ int main(int argc, char *argv[])
 	}
 
 	check_child_processes(pid_to_handler);
-
-	g_main_loop_run(main_loop);
+	if (container_status < 0)
+		g_main_loop_run(main_loop);
 
 	/* Drain stdout and stderr only if a timeout doesn't occur */
 	if (masterfd_stdout != -1 && !timed_out) {
