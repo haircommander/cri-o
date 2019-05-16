@@ -1477,7 +1477,19 @@ int main(int argc, char *argv[])
 	}
 
 	check_child_processes(pid_to_handler);
-	if (container_status < 0)
+	/* There are three cases we want to run this main loop:
+	   1. if we are running create or restore
+	   2. if we are running exec without a terminal
+	       no matter the speed of the command being executed, having outstanding
+	       output to process from the child process keeps it alive, so we can read the io,
+	       and let the callback handler take care of the container_status as normal.
+	   3. if we are exec with a tty open, and our container_status hasn't been changed
+	      by any callbacks yet
+	       specifically, the check child processes call above could set the container
+	       status if it is a quickly exiting command. We only want to run the loop if
+	       this hasn't happened yet.
+	*/
+	if (!opt_exec || !opt_terminal || container_status < 0)
 		g_main_loop_run(main_loop);
 
 	/* Drain stdout and stderr only if a timeout doesn't occur */
