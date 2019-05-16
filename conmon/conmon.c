@@ -422,12 +422,12 @@ static void check_child_processes(GHashTable *pid_to_handler)
 
 		/* If we got here, pid > 0, so we have a valid pid to check.  */
 		cb = g_hash_table_lookup(pid_to_handler, &pid);
-		if (cb)
+		if (cb) {
 			cb(pid, status, 0);
-		else {
+		} else {
 			ndebugf("couldn't  find cb for pid %d", pid);
 			if (container_status < 0 && container_pid < 0) {
-				ndebugf("container status and pid were found prior to callback being registered, setting now");
+				ndebugf("container status and pid were found prior to callback being registered. calling manually");
 				container_exit_cb(pid, status, 0);
 			}
 		}
@@ -754,6 +754,16 @@ static void container_exit_cb(G_GNUC_UNUSED GPid pid, int status, G_GNUC_UNUSED 
 	}
 	container_status = status;
 	container_pid = -1;
+	/* In the case of a quickly exiting exec command, the container exit callback
+	   sometimes gets called earlier than the pid exit callback. If we quit the loop at that point
+	   we risk falsely telling the caller of conmon the runtime call failed (because runtime status
+	   wouldn't be set). Instead, don't quit the loop until runtime exit is also called, which should
+	   shortly after. */
+	if (create_pid > 0) {
+		ndebugf("container pid return handled before runtime pid return. Not quitting yet.");
+		return;
+	}
+
 	g_main_loop_quit(main_loop);
 }
 
@@ -1352,21 +1362,9 @@ int main(int argc, char *argv[])
 	    || (signal(SIGINT, on_sig_exit) == SIG_ERR))
 		pexit("Failed to register the signal handler");
 
+
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
 		pexit("Failed to unblock signals");
-
-	if (opt_exit_command)
-		atexit(do_exit_command);
-
-	g_ptr_array_free(runtime_argv, TRUE);
-
-	/* The runtime has that fd now. We don't need to touch it anymore. */
-	if (slavefd_stdin > -1)
-		close(slavefd_stdin);
-	if (slavefd_stdout > -1)
-		close(slavefd_stdout);
-	if (slavefd_stderr > -1)
-		close(slavefd_stderr);
 
 	/* Map pid to its handler.  */
 	GHashTable *pid_to_handler = g_hash_table_new(g_int_hash, g_int_equal);
@@ -1380,6 +1378,19 @@ int main(int argc, char *argv[])
 
 	if (signal(SIGCHLD, on_sigchld) == SIG_ERR)
 		pexit("Failed to set handler for SIGCHLD");
+
+	if (opt_exit_command)
+		atexit(do_exit_command);
+
+	g_ptr_array_free(runtime_argv, TRUE);
+
+	/* The runtime has that fd now. We don't need to touch it anymore. */
+	if (slavefd_stdin > -1)
+		close(slavefd_stdin);
+	if (slavefd_stdout > -1)
+		close(slavefd_stdout);
+	if (slavefd_stderr > -1)
+		close(slavefd_stderr);
 
 	/* Setup endpoint for attach */
 	_cleanup_free_ char *attach_symlink_dir_path = NULL;
