@@ -47,7 +47,7 @@ static gboolean opt_version = FALSE;
 static gboolean opt_terminal = FALSE;
 static gboolean opt_stdin = FALSE;
 static gboolean opt_leave_stdin_open = FALSE;
-static gboolean opt_syslog = FALSE;
+static gboolean opt_syslog = TRUE;
 static char *opt_cid = NULL;
 static char *opt_cuuid = NULL;
 static char *opt_name = NULL;
@@ -57,6 +57,7 @@ static char *opt_container_pid_file = NULL;
 static char *opt_conmon_pid_file = NULL;
 static gboolean opt_systemd_cgroup = FALSE;
 static gboolean opt_no_pivot = FALSE;
+static gboolean opt_attach = FALSE;
 static char *opt_exec_process_spec = NULL;
 static gboolean opt_exec = FALSE;
 static char *opt_restore_path = NULL;
@@ -85,6 +86,7 @@ static GOptionEntry opt_entries[] = {
 	 "Additional arg to pass to the restore command. Can be specified multiple times", NULL},
 	{"runtime-arg", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_runtime_args,
 	 "Additional arg to pass to the runtime. Can be specified multiple times", NULL},
+	{"attach", 0, 0, G_OPTION_ARG_NONE, &opt_attach, "Attach to an exec session", NULL},
 	{"no-new-keyring", 0, 0, G_OPTION_ARG_NONE, &opt_no_new_keyring, "Do not create a new session keyring for the container", NULL},
 	{"no-pivot", 0, 0, G_OPTION_ARG_NONE, &opt_no_pivot, "Do not use pivot_root", NULL},
 	{"replace-listen-pid", 0, 0, G_OPTION_ARG_NONE, &opt_replace_listen_pid, "Replace listen pid if set for oci-runtime pid", NULL},
@@ -744,10 +746,11 @@ static void write_sync_fd(int sync_pipe_fd, int res, const char *message)
 	if (sync_pipe_fd == -1)
 		return;
 
-	if (opt_exec)
-		res_key = "exit_code";
-	else
-		res_key = "pid";
+	// TODO FIXME breaking change here
+	// if (opt_exec)
+	//	res_key = "exit_code";
+	// else
+	res_key = "pid";
 
 	if (message) {
 		escaped_message = escape_json_string(message);
@@ -813,6 +816,7 @@ static char *setup_attach_socket(void)
 	attach_symlink_dir_path = g_build_filename(opt_socket_path, opt_cuuid, NULL);
 	if (unlink(attach_symlink_dir_path) == -1 && errno != ENOENT)
 		pexit("Failed to remove existing symlink for attach socket directory");
+	nwarnf("symlink dir path: %s %s", attach_symlink_dir_path, opt_bundle_path);
 
 	/*
 	 * This is to address a corner case where the symlink path length can end up to be
@@ -829,6 +833,7 @@ static char *setup_attach_socket(void)
 
 	attach_sock_path = g_build_filename(opt_socket_path, opt_cuuid, "attach", NULL);
 	ninfof("attach sock path: %s", attach_sock_path);
+	ninfof("symlink path: %s", attach_symlink_dir_path);
 
 	strncpy(attach_addr.sun_path, attach_sock_path, sizeof(attach_addr.sun_path) - 1);
 	ninfof("addr{sun_family=AF_UNIX, sun_path=%s}", attach_addr.sun_path);
@@ -1010,7 +1015,7 @@ int main(int argc, char *argv[])
 		nexit("Cannot use 'exec' and 'restore' at the same time.");
 
 
-	if (!opt_exec && opt_cuuid == NULL)
+	if (opt_cuuid == NULL)
 		nexit("Container UUID not provided. Use --cuuid");
 
 	if (opt_runtime_path == NULL)
@@ -1018,7 +1023,7 @@ int main(int argc, char *argv[])
 	if (access(opt_runtime_path, X_OK) < 0)
 		pexitf("Runtime path %s is not valid", opt_runtime_path);
 
-	if (opt_bundle_path == NULL && !opt_exec) {
+	if (opt_bundle_path == NULL) {
 		if (getcwd(cwd, sizeof(cwd)) == NULL) {
 			nexit("Failed to get working directory");
 		}
@@ -1042,7 +1047,7 @@ int main(int argc, char *argv[])
 		opt_container_pid_file = default_pid_file;
 	}
 
-	configure_log_drivers(opt_log_path, opt_log_size_max, opt_cuuid, opt_name);
+	configure_log_drivers(opt_log_path, opt_log_size_max, opt_cid, opt_name);
 
 	start_pipe_fd = get_pipe_fd_from_env("_OCI_STARTPIPE");
 	if (start_pipe_fd >= 0) {
@@ -1054,6 +1059,10 @@ int main(int argc, char *argv[])
 			pexit("start-pipe read failed");
 		}
 		close(start_pipe_fd);
+	}
+
+	if (opt_attach && !opt_exec) {
+		nexit("--attach can only be set with --exec");
 	}
 
 	/* In the create-container case we double-fork in
@@ -1149,8 +1158,11 @@ int main(int argc, char *argv[])
 			add_argv(runtime_argv, opt_runtime_args[n_runtime_args++], NULL);
 	}
 
+	/* Set the exec arguments. */
 	if (opt_exec) {
-		add_argv(runtime_argv, "exec", "-d", "--pid-file", opt_container_pid_file, NULL);
+		add_argv(runtime_argv, "exec", "--pid-file", opt_container_pid_file, "--process", opt_exec_process_spec, "-d", NULL);
+		if (opt_terminal)
+			add_argv(runtime_argv, "--tty", NULL);
 	} else {
 		char *command;
 		if (opt_restore_path)
@@ -1202,11 +1214,6 @@ int main(int argc, char *argv[])
 
 	if (csname != NULL) {
 		add_argv(runtime_argv, "--console-socket", csname, NULL);
-	}
-
-	/* Set the exec arguments. */
-	if (opt_exec) {
-		add_argv(runtime_argv, "--process", opt_exec_process_spec, NULL);
 	}
 
 	/* Container name comes last. */
@@ -1269,6 +1276,22 @@ int main(int argc, char *argv[])
 			}
 		}
 
+		// If we are execing, and the user is trying to attach to this exec session,
+		// we need to wait until they attach to the console before actually execing,
+		// or else we may lose output
+		_cleanup_close_ int attach_pipe_fd = -1;
+		if (opt_attach) {
+			get_pipe_fd_from_env("_OCI_ATTACHPIPE");
+			if (attach_pipe_fd < 0) {
+				pexit("--attach specified but _OCI_ATTACHPIPE was not");
+			}
+			num_read = read(attach_pipe_fd, buf, BUF_SIZE);
+			if (num_read < 0) {
+				pexit("attach-pipe read failed");
+			}
+			close(attach_pipe_fd);
+		}
+
 		execv(g_ptr_array_index(runtime_argv, 0), (char **)runtime_argv->pdata);
 		exit(127);
 	}
@@ -1326,16 +1349,17 @@ int main(int argc, char *argv[])
 	}
 
 	if (!WIFEXITED(runtime_status) || WEXITSTATUS(runtime_status) != 0) {
-		if (sync_pipe_fd > 0) {
-			/*
-			 * Read from container stderr for any error and send it to parent
-			 * We send -1 as pid to signal to parent that create container has failed.
-			 */
-			num_read = read(masterfd_stderr, buf, BUF_SIZE - 1);
-			if (num_read > 0) {
-				buf[num_read] = '\0';
+		num_read = read(masterfd_stderr, buf, BUF_SIZE - 1);
+		if (num_read > 0) {
+			buf[num_read] = '\0';
+			if (sync_pipe_fd > 0) {
+				/*
+				 * Read from container stderr for any error and send it to parent
+				 * We send -1 as pid to signal to parent that create container has failed.
+				 */
 				write_sync_fd(sync_pipe_fd, -1, buf);
 			}
+			nexitf("%s", buf);
 		}
 		nexitf("Failed to create container: exit status %d", get_exit_status(runtime_status));
 	}
@@ -1358,18 +1382,20 @@ int main(int argc, char *argv[])
 
 	/* Setup endpoint for attach */
 	_cleanup_free_ char *attach_symlink_dir_path = NULL;
-	if (!opt_exec) {
+	// TODO FIXME detach option?
+	//  TODO FIXME these were all exec before
+	// TODO FIXME resize events
+	if (opt_bundle_path != NULL) {
+		// TODO FIXME opt_socket_path is never null I think...
+		// if (opt_socket_path != NULL)
 		attach_symlink_dir_path = setup_attach_socket();
-	}
-
-	if (!opt_exec) {
 		dummyfd = setup_terminal_control_fifo();
 	}
 
 	/* Send the container pid back to parent */
-	if (!opt_exec) {
-		write_sync_fd(sync_pipe_fd, container_pid, NULL);
-	}
+	// if (!opt_exec) {
+	write_sync_fd(sync_pipe_fd, container_pid, NULL);
+	//}
 
 	setup_oom_handling(container_pid);
 
@@ -1403,11 +1429,13 @@ int main(int argc, char *argv[])
 	sync_logs();
 
 	int exit_status = -1;
-	const char *exit_message = NULL;
+	// TODO FIXME this was removed because of breaking change down there
+	// const char *exit_message = NULL;
 
 	if (timed_out) {
 		kill(container_pid, SIGKILL);
-		exit_message = "command timed out";
+		// TODO FIXME this was removed because of breaking change down there
+		// exit_message = "command timed out";
 	} else {
 		exit_status = get_exit_status(container_status);
 	}
@@ -1431,10 +1459,11 @@ int main(int argc, char *argv[])
 			break;
 	}
 
-	if (opt_exec) {
-		/* Send the command exec exit code back to the parent */
-		write_sync_fd(sync_pipe_fd, exit_status, exit_message);
-	}
+	// TODO FIXME breaking change
+	// if (opt_exec) {
+	//	/* Send the command exec exit code back to the parent */
+	//	write_sync_fd(sync_pipe_fd, exit_status, exit_message);
+	//}
 
 	if (attach_symlink_dir_path != NULL && unlink(attach_symlink_dir_path) == -1 && errno != ENOENT) {
 		pexit("Failed to remove symlink for attach socket directory");
