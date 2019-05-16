@@ -48,7 +48,7 @@ static gboolean opt_version = FALSE;
 static gboolean opt_terminal = FALSE;
 static gboolean opt_stdin = FALSE;
 static gboolean opt_leave_stdin_open = FALSE;
-static gboolean opt_syslog = TRUE;
+static gboolean opt_syslog = FALSE;
 static char *opt_cid = NULL;
 static char *opt_cuuid = NULL;
 static char *opt_name = NULL;
@@ -62,7 +62,7 @@ static gboolean opt_attach = FALSE;
 static char *opt_exec_process_spec = NULL;
 static gboolean opt_exec = FALSE;
 static char *opt_restore_path = NULL;
-static gchar **opt_restore_args = NULL;
+static gchar **opt_runtime_opts = NULL;
 static gchar **opt_runtime_args = NULL;
 static gchar **opt_log_path = NULL;
 static char *opt_exit_dir = NULL;
@@ -74,11 +74,6 @@ static char *opt_exit_command = NULL;
 static gchar **opt_exit_args = NULL;
 static gboolean opt_replace_listen_pid = FALSE;
 static char *opt_log_level = NULL;
-static int opt_preserve_fds = 0;
-static char *opt_user = NULL;
-static char *opt_cwd = NULL;
-static gchar **opt_env = NULL;
-static gchar **opt_cap = NULL;
 static GOptionEntry opt_entries[] = {
 	{"terminal", 't', 0, G_OPTION_ARG_NONE, &opt_terminal, "Terminal", NULL},
 	{"stdin", 'i', 0, G_OPTION_ARG_NONE, &opt_stdin, "Stdin", NULL},
@@ -88,8 +83,8 @@ static GOptionEntry opt_entries[] = {
 	{"name", 'n', 0, G_OPTION_ARG_STRING, &opt_name, "Container name", NULL},
 	{"runtime", 'r', 0, G_OPTION_ARG_STRING, &opt_runtime_path, "Runtime path", NULL},
 	{"restore", 0, 0, G_OPTION_ARG_STRING, &opt_restore_path, "Restore a container from a checkpoint", NULL},
-	{"restore-arg", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_restore_args,
-	 "Additional arg to pass to the restore command. Can be specified multiple times", NULL},
+	{"runtime-opt", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_runtime_opts,
+	 "Additional opts to pass to the restore or exec command. Can be specified multiple times", NULL},
 	{"runtime-arg", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_runtime_args,
 	 "Additional arg to pass to the runtime. Can be specified multiple times", NULL},
 	{"attach", 0, 0, G_OPTION_ARG_NONE, &opt_attach, "Attach to an exec session", NULL},
@@ -115,11 +110,6 @@ static GOptionEntry opt_entries[] = {
 	{"version", 0, 0, G_OPTION_ARG_NONE, &opt_version, "Print the version and exit", NULL},
 	{"syslog", 0, 0, G_OPTION_ARG_NONE, &opt_syslog, "Log to syslog (use with cgroupfs cgroup manager)", NULL},
 	{"log-level", 0, 0, G_OPTION_ARG_STRING, &opt_log_level, "Print debug logs based on log level", NULL},
-	{"preserve-fds", 0, 0, G_OPTION_ARG_INT64, &opt_preserve_fds, "fds to preserve passed to runtime (only for exec)", NULL},
-	{"user", 0, 0, G_OPTION_ARG_STRING, &opt_user, "user to run a command as (only for exec)", NULL},
-	{"cwd", 0, 0, G_OPTION_ARG_STRING, &opt_cwd, "current working directory to exec command in (only for exec)", NULL},
-	{"env", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_env, "Environment variables for an exec session (only for exec)", NULL},
-	{"cap", 0, 0, G_OPTION_ARG_STRING_ARRAY, &opt_cap, "Capabilities for an exec session (only for exec)", NULL},
 	{NULL}};
 
 #define CGROUP_ROOT "/sys/fs/cgroup"
@@ -1046,7 +1036,10 @@ int main(int argc, char *argv[])
 	main_loop = g_main_loop_new(NULL, FALSE);
 
 	if (opt_restore_path && opt_exec)
-		nexit("Cannot use 'exec' and 'restore' at the same time.");
+		nexit("Cannot use 'exec' and 'restore' at the same time");
+
+	if (!opt_exec && opt_attach)
+		nexit("Attach can only be specified with exec");
 
 
 	if (opt_cuuid == NULL)
@@ -1096,19 +1089,6 @@ int main(int argc, char *argv[])
 		   we don't need this anymore. */
 		if (!opt_attach)
 			close(start_pipe_fd);
-	}
-
-	if (!opt_exec) {
-		if (opt_preserve_fds > 0)
-			nexit("cannot preserve fds without exec");
-		if (opt_attach)
-			nexit("--attach can only be set with --exec");
-		if (opt_user)
-			nexit("--user can only be set with --exec");
-		if (opt_cwd)
-			nexit("--cwd can only be set with --exec");
-		if (opt_env)
-			nexit("--env can only be set with --exec");
 	}
 
 	/* In the create-container case we double-fork in
@@ -1215,22 +1195,6 @@ int main(int argc, char *argv[])
 		add_argv(runtime_argv, "exec", "--pid-file", opt_container_pid_file, "--process", opt_exec_process_spec, "-d", NULL);
 		if (opt_terminal)
 			add_argv(runtime_argv, "--tty", NULL);
-		if (opt_preserve_fds > 0)
-			add_argv(runtime_argv, "--preserve-fds", opt_preserve_fds, NULL);
-		if (opt_user)
-			add_argv(runtime_argv, "--user", opt_user, NULL);
-		if (opt_cwd)
-			add_argv(runtime_argv, "--cwd", opt_cwd, NULL);
-		if (opt_env) {
-			size_t n_env = 0;
-			while (opt_env[n_env])
-				add_argv(runtime_argv, "--env", opt_env[n_env++], NULL);
-		}
-		if (opt_cap) {
-			size_t n_cap = 0;
-			while (opt_cap[n_cap])
-				add_argv(runtime_argv, "--cap", opt_cap[n_cap++], NULL);
-		}
 	} else {
 		char *command;
 		if (opt_restore_path)
@@ -1260,20 +1224,19 @@ int main(int argc, char *argv[])
 			 * also place its log files.
 			 */
 			add_argv(runtime_argv, "--detach", "--image-path", opt_restore_path, "--work-path", opt_bundle_path, NULL);
-
-			/*
-			 *  opt_restore_args can contain 'runc restore' options like
-			 *  '--tcp-established'. Instead of listing each option as
-			 *  a special conmon option, this (--restore-arg) provides
-			 *  a generic interface to pass all those options to conmon
-			 *  without requiring a code change for each new option.
-			 */
-			if (opt_restore_args) {
-				size_t n_restore_args = 0;
-				while (opt_restore_args[n_restore_args])
-					add_argv(runtime_argv, opt_restore_args[n_restore_args++], NULL);
-			}
 		}
+	}
+	/*
+	 *  opt_runtime_opts can contain 'runc restore' or 'runc exec' options like
+	 *  '--tcp-established' or '--preserve-fds'. Instead of listing each option as
+	 *  a special conmon option, this (--runtime-opt) provides
+	 *  a generic interface to pass all those options to conmon
+	 *  without requiring a code change for each new option.
+	 */
+	if (opt_runtime_opts) {
+		size_t n_runtime_opts = 0;
+		while (opt_runtime_opts[n_runtime_opts])
+			add_argv(runtime_argv, opt_runtime_opts[n_runtime_opts++], NULL);
 	}
 
 
