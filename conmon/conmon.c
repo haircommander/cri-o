@@ -73,6 +73,7 @@ static char *opt_exit_command = NULL;
 static gchar **opt_exit_args = NULL;
 static gboolean opt_replace_listen_pid = FALSE;
 static char *opt_log_level = NULL;
+static int opt_preserve_fds = 0;
 static GOptionEntry opt_entries[] = {
 	{"terminal", 't', 0, G_OPTION_ARG_NONE, &opt_terminal, "Terminal", NULL},
 	{"stdin", 'i', 0, G_OPTION_ARG_NONE, &opt_stdin, "Stdin", NULL},
@@ -109,6 +110,7 @@ static GOptionEntry opt_entries[] = {
 	{"version", 0, 0, G_OPTION_ARG_NONE, &opt_version, "Print the version and exit", NULL},
 	{"syslog", 0, 0, G_OPTION_ARG_NONE, &opt_syslog, "Log to syslog (use with cgroupfs cgroup manager)", NULL},
 	{"log-level", 0, 0, G_OPTION_ARG_STRING, &opt_log_level, "Print debug logs based on log level", NULL},
+	{"preserve-fds", 0, 0, G_OPTION_ARG_INT64, &opt_preserve_fds, "fds to preserve passed to runtime (only for exec)", NULL},
 	{NULL}};
 
 #define CGROUP_ROOT "/sys/fs/cgroup"
@@ -969,6 +971,7 @@ int main(int argc, char *argv[])
 	char buf[BUF_SIZE];
 	int num_read;
 	int sync_pipe_fd = -1;
+	int attach_pipe_fd = -1;
 	int start_pipe_fd = -1;
 	GError *error = NULL;
 	GOptionContext *context;
@@ -1050,7 +1053,7 @@ int main(int argc, char *argv[])
 	configure_log_drivers(opt_log_path, opt_log_size_max, opt_cid, opt_name);
 
 	start_pipe_fd = get_pipe_fd_from_env("_OCI_STARTPIPE");
-	if (start_pipe_fd >= 0) {
+	if (start_pipe_fd >= 0 && !opt_attach) {
 		/* Block for an initial write to the start pipe before
 		   spawning any childred or exiting, to ensure the
 		   parent can put us in the right cgroup. */
@@ -1061,9 +1064,12 @@ int main(int argc, char *argv[])
 		close(start_pipe_fd);
 	}
 
-	if (opt_attach && !opt_exec) {
-		nexit("--attach can only be set with --exec");
-	}
+	if (!opt_exec)
+		if (opt_preserve_fds > 0) {
+			nexit("cannot preserve fds without exec");
+			if (opt_attach)
+				nexit("--attach can only be set with --exec");
+		}
 
 	/* In the create-container case we double-fork in
 	   order to disconnect from the parent, as we want to
@@ -1099,6 +1105,12 @@ int main(int argc, char *argv[])
 	/* Environment variables */
 	sync_pipe_fd = get_pipe_fd_from_env("_OCI_SYNCPIPE");
 
+	if (opt_attach) {
+		attach_pipe_fd = get_pipe_fd_from_env("_OCI_ATTACHPIPE");
+		if (attach_pipe_fd < 0) {
+			pexit("--attach specified but _OCI_ATTACHPIPE was not");
+		}
+	}
 	/*
 	 * Set self as subreaper so we can wait for container process
 	 * and return its exit code.
@@ -1163,6 +1175,8 @@ int main(int argc, char *argv[])
 		add_argv(runtime_argv, "exec", "--pid-file", opt_container_pid_file, "--process", opt_exec_process_spec, "-d", NULL);
 		if (opt_terminal)
 			add_argv(runtime_argv, "--tty", NULL);
+		if (opt_preserve_fds > 0)
+			add_argv(runtime_argv, "--preserve-fds", opt_preserve_fds, NULL);
 	} else {
 		char *command;
 		if (opt_restore_path)
@@ -1279,22 +1293,23 @@ int main(int argc, char *argv[])
 		// If we are execing, and the user is trying to attach to this exec session,
 		// we need to wait until they attach to the console before actually execing,
 		// or else we may lose output
-		_cleanup_close_ int attach_pipe_fd = -1;
 		if (opt_attach) {
-			get_pipe_fd_from_env("_OCI_ATTACHPIPE");
-			if (attach_pipe_fd < 0) {
-				pexit("--attach specified but _OCI_ATTACHPIPE was not");
-			}
-			num_read = read(attach_pipe_fd, buf, BUF_SIZE);
+			ndebug("waiting for start message from parent");
+			num_read = read(start_pipe_fd, buf, BUF_SIZE);
+			ndebug("got start message from parent. Starting exec");
 			if (num_read < 0) {
-				pexit("attach-pipe read failed");
+				pexit("start-pipe read failed");
 			}
-			close(attach_pipe_fd);
+			close(start_pipe_fd);
+		} else {
+			ndebug("no start specified, starting exec");
 		}
 
 		execv(g_ptr_array_index(runtime_argv, 0), (char **)runtime_argv->pdata);
 		exit(127);
 	}
+
+	ndebugf("hello\n");
 
 	if ((signal(SIGTERM, on_sig_exit) == SIG_ERR) || (signal(SIGQUIT, on_sig_exit) == SIG_ERR)
 	    || (signal(SIGINT, on_sig_exit) == SIG_ERR))
@@ -1328,6 +1343,26 @@ int main(int argc, char *argv[])
 
 	if (signal(SIGCHLD, on_sigchld) == SIG_ERR)
 		pexit("Failed to set handler for SIGCHLD");
+
+	/* Setup endpoint for attach */
+	_cleanup_free_ char *attach_symlink_dir_path = NULL;
+	// TODO FIXME detach option?
+	//  TODO FIXME these were all exec before
+	// TODO FIXME resize events
+	if (opt_bundle_path != NULL) {
+		// TODO FIXME opt_socket_path is never null I think...
+		// if (opt_socket_path != NULL)
+		attach_symlink_dir_path = setup_attach_socket();
+		dummyfd = setup_terminal_control_fifo();
+
+		if (opt_attach) {
+			ndebug("sending attach message to parent");
+			write_sync_fd(attach_pipe_fd, 0, NULL);
+			ndebug("sent attach message to parent");
+		} else {
+			ndebug("no attach specified");
+		}
+	}
 
 	if (csname != NULL) {
 		g_unix_fd_add(console_socket_fd, G_IO_IN, terminal_accept_cb, csname);
@@ -1379,18 +1414,6 @@ int main(int argc, char *argv[])
 	ndebugf("container PID: %d", container_pid);
 
 	g_hash_table_insert(pid_to_handler, (pid_t *)&container_pid, container_exit_cb);
-
-	/* Setup endpoint for attach */
-	_cleanup_free_ char *attach_symlink_dir_path = NULL;
-	// TODO FIXME detach option?
-	//  TODO FIXME these were all exec before
-	// TODO FIXME resize events
-	if (opt_bundle_path != NULL) {
-		// TODO FIXME opt_socket_path is never null I think...
-		// if (opt_socket_path != NULL)
-		attach_symlink_dir_path = setup_attach_socket();
-		dummyfd = setup_terminal_control_fifo();
-	}
 
 	/* Send the container pid back to parent */
 	// if (!opt_exec) {
@@ -1453,18 +1476,17 @@ int main(int argc, char *argv[])
 	 * reused immediately.
 	 */
 	for (fd = 3;; fd++) {
-		if (fd == sync_pipe_fd || fd == dev_null_r || fd == dev_null_w)
+		if (fd == sync_pipe_fd || fd == attach_pipe_fd || fd == dev_null_r || fd == dev_null_w)
 			continue;
 		if (close(fd) < 0 && errno == EBADF)
 			break;
 	}
 
 	// TODO FIXME breaking change
-	// if (opt_exec) {
-	//	/* Send the command exec exit code back to the parent */
-	//	write_sync_fd(sync_pipe_fd, exit_status, exit_message);
-	//}
-
+	if (opt_attach) {
+		/* Send the command exec exit code back to the parent */
+		write_sync_fd(attach_pipe_fd, exit_status, exit_message);
+	}
 	if (attach_symlink_dir_path != NULL && unlink(attach_symlink_dir_path) == -1 && errno != ENOENT) {
 		pexit("Failed to remove symlink for attach socket directory");
 	}
