@@ -1396,11 +1396,16 @@ int main(int argc, char *argv[])
 		if (num_read > 0) {
 			buf[num_read] = '\0';
 			if (sync_pipe_fd > 0) {
+				int to_report = -1;
+				if (opt_exec && container_status > 0) {
+					to_report = -1 * container_status;
+				}
+
 				/*
 				 * Read from container stderr for any error and send it to parent
 				 * We send -1 as pid to signal to parent that create container has failed.
 				 */
-				write_sync_fd(sync_pipe_fd, -1, buf);
+				write_sync_fd(sync_pipe_fd, to_report, buf);
 			}
 			nexitf("%s", buf);
 		}
