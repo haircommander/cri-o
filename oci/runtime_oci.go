@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/cri-o/cri-o/pkg/findprocess"
 	"github.com/cri-o/cri-o/utils"
 	"github.com/docker/docker/pkg/pools"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/fsnotify/fsnotify"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -57,7 +59,7 @@ func newRuntimeOCI(r *Runtime, handler *RuntimeHandler) RuntimeImpl {
 
 // syncInfo is used to return data from monitor process to daemon
 type syncInfo struct {
-	Pid     int    `json:"pid"`
+	Data    int    `json:"data"`
 	Message string `json:"message,omitempty"`
 }
 
@@ -65,6 +67,47 @@ type syncInfo struct {
 type exitCodeInfo struct {
 	ExitCode int32  `json:"exit_code"`
 	Message  string `json:"message,omitempty"`
+}
+
+func readConmonPipeData(pipe *os.File) (int, error) {
+	// Wait to get container pid from conmon
+	type syncStruct struct {
+		si  *syncInfo
+		err error
+	}
+	ch := make(chan syncStruct)
+	go func() {
+		var si *syncInfo
+		rdr := bufio.NewReader(pipe)
+		b, err := rdr.ReadBytes('\n')
+		if err != nil {
+			ch <- syncStruct{err: err}
+		}
+		if err := json.Unmarshal(b, &si); err != nil {
+			ch <- syncStruct{err: err}
+			return
+		}
+		ch <- syncStruct{si: si}
+	}()
+
+	data := -1
+	select {
+	case ss := <-ch:
+		if ss.err != nil {
+			return -1, fmt.Errorf("error reading container (probably exited) json message: %v", ss.err)
+		}
+		logrus.Debugf("Received: %d", ss.si.Data)
+		if ss.si.Data < 0 {
+			if ss.si.Message != "" {
+				return ss.si.Data, fmt.Errorf("container create failed: %s", ss.si.Message)
+			}
+			return ss.si.Data, fmt.Errorf("container create failed")
+		}
+		data = ss.si.Data
+	case <-time.After(ContainerCreateTimeout):
+		return -1, fmt.Errorf("container creation timeout")
+	}
+	return data, nil
 }
 
 // CreateContainer creates a container.
@@ -177,37 +220,8 @@ func (r *runtimeOCI) CreateContainer(c *Container, cgroupParent string) (err err
 	}()
 
 	// Wait to get container pid from conmon
-	type syncStruct struct {
-		si  *syncInfo
-		err error
-	}
-	ch := make(chan syncStruct)
-	go func() {
-		var si *syncInfo
-		if err = json.NewDecoder(parentPipe).Decode(&si); err != nil {
-			ch <- syncStruct{err: err}
-			return
-		}
-		ch <- syncStruct{si: si}
-	}()
-
-	select {
-	case ss := <-ch:
-		if ss.err != nil {
-			return fmt.Errorf("error reading container (probably exited) json message: %v", ss.err)
-		}
-		logrus.Debugf("Received container pid: %d", ss.si.Pid)
-		if ss.si.Pid == -1 {
-			if ss.si.Message != "" {
-				logrus.Errorf("Container creation error: %s", ss.si.Message)
-				return fmt.Errorf("container create failed: %s", ss.si.Message)
-			}
-			logrus.Errorf("Container creation failed")
-			return fmt.Errorf("container create failed")
-		}
-	case <-time.After(ContainerCreateTimeout):
-		logrus.Errorf("Container creation timeout (%v)", ContainerCreateTimeout)
-		return fmt.Errorf("create container timeout")
+	if _, err := readConmonPipeData(parentPipe); err != nil {
+		return err
 	}
 	return nil
 }
@@ -365,12 +379,14 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 		os.RemoveAll(logPath)
 	}()
 
+	sessionID := stringid.GenerateNonCryptoID()
 	var args []string
 	args = append(args,
 		"-c", c.id,
 		"-n", c.name,
 		"-r", r.path,
 		"-p", pidFile.Name(),
+		"-u", sessionID,
 		"-e")
 	if c.terminal {
 		args = append(args, "-t")
@@ -432,9 +448,17 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 			Err:      err,
 		}
 	}
+	if pid, err := readConmonPipeData(parentPipe); err != nil {
+		return nil, &ExecSyncError{
+			Stdout:   stdoutBuf,
+			Stderr:   stderrBuf,
+			ExitCode: int32(pid),
+			Err:      err,
+		}
+	}
 
-	var ec *exitCodeInfo
-	if err := json.NewDecoder(parentPipe).Decode(&ec); err != nil {
+	ec, err := readConmonPipeData(parentPipe)
+	if err != nil {
 		return nil, &ExecSyncError{
 			Stdout:   stdoutBuf,
 			Stderr:   stderrBuf,
@@ -443,14 +467,14 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 		}
 	}
 
-	logrus.Debugf("Received container exit code: %v, message: %s", ec.ExitCode, ec.Message)
+	logrus.Debugf("Received container exit code: %v", ec)
 
-	if ec.ExitCode == -1 {
+	if ec < 0 {
 		return nil, &ExecSyncError{
 			Stdout:   stdoutBuf,
 			Stderr:   stderrBuf,
 			ExitCode: -1,
-			Err:      fmt.Errorf(ec.Message),
+			Err:      err,
 		}
 	}
 
@@ -475,7 +499,7 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 	return &ExecSyncResponse{
 		Stdout:   stdoutBytes,
 		Stderr:   stderrBytes,
-		ExitCode: ec.ExitCode,
+		ExitCode: int32(ec),
 	}, nil
 }
 
