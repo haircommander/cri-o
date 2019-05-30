@@ -1165,7 +1165,8 @@ int main(int argc, char *argv[])
 	if (access(opt_runtime_path, X_OK) < 0)
 		pexitf("Runtime path %s is not valid", opt_runtime_path);
 
-	if (opt_bundle_path == NULL) {
+	// a user must opt into attaching on an exec
+	if (opt_bundle_path == NULL && !opt_exec) {
 		if (getcwd(cwd, sizeof(cwd)) == NULL) {
 			nexit("Failed to get working directory");
 		}
