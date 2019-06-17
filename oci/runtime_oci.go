@@ -96,8 +96,10 @@ func (r *runtimeOCI) CreateContainer(c *Container, cgroupParent string) (err err
 		"-l", c.logPath,
 		"--exit-dir", r.containerExitsDir,
 		"--socket-dir-path", r.containerAttachSocketDir,
-		"--log-level", logrus.GetLevel().String(),
-		"--runtime-arg", fmt.Sprintf("%s=%s", rootFlag, r.root))
+		"--log-level", logrus.GetLevel().String())
+	if r.root != "" {
+		args = append(args, "--runtime-arg", fmt.Sprintf("%s=%s", rootFlag, r.root))
+	}
 	if r.logSizeMax >= 0 {
 		args = append(args, "--log-size-max", fmt.Sprintf("%v", r.logSizeMax))
 	}
@@ -217,8 +219,10 @@ func (r *runtimeOCI) StartContainer(c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
+	args := r.getRunRoot()
+	args = append(args, "start", c.id)
 	if err := utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr,
-		r.path, rootFlag, r.root, "start", c.id); err != nil {
+		r.path, args...); err != nil {
 
 		return err
 	}
@@ -393,8 +397,11 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 	defer os.RemoveAll(processFile.Name())
 
 	args = append(args,
-		"--exec-process-spec", processFile.Name(),
-		"--runtime-arg", fmt.Sprintf("%s=%s", rootFlag, r.root))
+		"--exec-process-spec", processFile.Name())
+
+	if r.root != "" {
+		args = append(args, "--runtime-arg", fmt.Sprintf("%s=%s", rootFlag, r.root))
+	}
 
 	cmd := exec.Command(r.conmonPath, args...)
 
@@ -481,7 +488,9 @@ func (r *runtimeOCI) ExecSyncContainer(c *Container, command []string, timeout i
 
 // UpdateContainer updates container resources
 func (r *runtimeOCI) UpdateContainer(c *Container, res *rspec.LinuxResources) error {
-	cmd := exec.Command(r.path, rootFlag, r.root, "update", "--resources", "-", c.id)
+	args := r.getRunRoot()
+	args = append(args, "update", "--resources", "-", c.id)
+	cmd := exec.Command(r.path, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -575,8 +584,10 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 	}
 
 	if timeout > 0 {
+		args := r.getRunRoot()
+		args = append(args, "kill", c.id, c.GetStopSignal())
 		if err := utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr,
-			r.path, rootFlag, r.root, "kill", c.id, c.GetStopSignal()); err != nil {
+			r.path, args...); err != nil {
 
 			if err := checkProcessGone(c); err != nil {
 				return fmt.Errorf("failed to stop container %q: %v", c.id, err)
@@ -589,8 +600,10 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 		logrus.Warnf("Stop container %q timed out: %v", c.id, err)
 	}
 
+	args := r.getRunRoot()
+	args = append(args, "kill", c.id, "KILL")
 	if err := utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr,
-		r.path, rootFlag, r.root, "kill", c.id, "KILL"); err != nil {
+		r.path, args...); err != nil {
 
 		if err := checkProcessGone(c); err != nil {
 			return fmt.Errorf("failed to stop container %q: %v", c.id, err)
@@ -620,7 +633,9 @@ func (r *runtimeOCI) DeleteContainer(c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "delete", "--force", c.id)
+	args := r.getRunRoot()
+	args = append(args, "delete", "--force", c.id)
+	_, err := utils.ExecCmd(r.path, args...)
 	return err
 }
 
@@ -629,7 +644,9 @@ func (r *runtimeOCI) UpdateContainerStatus(c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	cmd := exec.Command(r.path, rootFlag, r.root, "state", c.id)
+	args := r.getRunRoot()
+	args = append(args, "state", c.id)
+	cmd := exec.Command(r.path, args...)
 	if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", v))
 	}
@@ -701,7 +718,9 @@ func (r *runtimeOCI) PauseContainer(c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "pause", c.id)
+	args := r.getRunRoot()
+	args = append(args, "pause", c.id)
+	_, err := utils.ExecCmd(r.path, args...)
 	return err
 }
 
@@ -710,7 +729,9 @@ func (r *runtimeOCI) UnpauseContainer(c *Container) error {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "resume", c.id)
+	args := r.getRunRoot()
+	args = append(args, "resume", c.id)
+	_, err := utils.ExecCmd(r.path, args...)
 	return err
 }
 
@@ -736,8 +757,9 @@ func (r *runtimeOCI) SignalContainer(c *Container, sig syscall.Signal) error {
 		return err
 	}
 
-	return utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr, r.path,
-		rootFlag, r.root, "kill", c.ID(), signalString)
+	args := r.getRunRoot()
+	args = append(args, "kill", c.id, signalString)
+	return utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr, r.path, args...)
 }
 
 // AttachContainer attaches IO to a running container.
@@ -938,4 +960,14 @@ func prepareProcessExec(c *Container, cmd []string, tty bool) (*os.File, error) 
 		return nil, err
 	}
 	return f, nil
+}
+
+// getRunRoot returns the root flag and runtime root, if defined
+// if not defined, the runtime won't error because the rootFlag was followed
+// by an empty string
+func (r *runtimeOCI) getRunRoot() []string {
+	if r.root == "" {
+		return []string{}
+	}
+	return []string{rootFlag, r.root}
 }
