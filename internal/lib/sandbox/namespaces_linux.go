@@ -86,7 +86,7 @@ func createNewNamespaces(nsTypes []string) ([]*Namespace, error) {
 		return nil, fmt.Errorf("failed to generate random pinDir name: %v", err)
 	}
 
-	const runDir = "/var/run/crio"
+	const runDir = "/var/run/crio/ns"
 	pinDir := fmt.Sprintf("%s/%x-%x-%x-%x-%x", runDir, b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 
 	err = os.MkdirAll(pinDir, 0755)
@@ -168,6 +168,10 @@ func (n *Namespace) SymlinkCreate(name string) error {
 
 	nsName := fmt.Sprintf("%s-%x", name, b)
 	symlinkPath := filepath.Join(nsRunDir, nsName)
+
+	if err := os.MkdirAll(nsRunDir, 0755); err != nil {
+		return err
+	}
 
 	if err := os.Symlink(n.Path(), symlinkPath); err != nil {
 		return err

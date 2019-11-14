@@ -1,12 +1,13 @@
 package sandbox
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	nspkg "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -106,16 +107,6 @@ func (s *Sandbox) NetNsPath() string {
 	return s.nsPath(s.netns, NETNS)
 }
 
-//// NetNsCreate creates a new network namespace for the sandbox
-//func (s *Sandbox) NetNsCreate(netNs NamespaceIface) error {
-//	netNs, err := s.nsCreate(netNs, NETNS)
-//	if err != nil {
-//		return err
-//	}
-//	s.netns = netNs
-//	return nil
-//}
-
 // NetNsJoin attempts to join the sandbox to an existing network namespace
 // This will fail if the sandbox is already part of a network namespace
 func (s *Sandbox) NetNsJoin(nspath, name string) error {
@@ -131,16 +122,6 @@ func (s *Sandbox) NetNsJoin(nspath, name string) error {
 	s.netns = netNS
 
 	return nil
-}
-
-// NetNsRemove removes the network namespace associated with the sandbox
-func (s *Sandbox) NetNsRemove() error {
-	if s.netns == nil {
-		logrus.Warn("no networking namespace")
-		return nil
-	}
-
-	return s.netns.Remove()
 }
 
 // IpcNs specific functions
@@ -160,16 +141,6 @@ func (s *Sandbox) IpcNsPath() string {
 	return s.nsPath(s.ipcns, IPCNS)
 }
 
-//// IpcNsCreate creates a new IPC namespace for the sandbox
-//func (s *Sandbox) IpcNsCreate(ipcNs NamespaceIface) error {
-//	ipcNs, err := s.nsCreate(ipcNs, IPCNS)
-//	if err != nil {
-//		return err
-//	}
-//	s.ipcns = ipcNs
-//	return nil
-//}
-
 // IpcNsJoin attempts to join the sandbox to an existing IPC namespace
 // This will fail if the sandbox is already part of a IPC namespace
 func (s *Sandbox) IpcNsJoin(nspath, name string) error {
@@ -185,16 +156,6 @@ func (s *Sandbox) IpcNsJoin(nspath, name string) error {
 	s.ipcns = ipcNS
 
 	return nil
-}
-
-// IpcNsRemove removes the IPC namespace associated with the sandbox
-func (s *Sandbox) IpcNsRemove() error {
-	if s.ipcns == nil {
-		logrus.Warn("no IPC namespace")
-		return nil
-	}
-
-	return s.ipcns.Remove()
 }
 
 // UtsNs specific functions
@@ -214,16 +175,6 @@ func (s *Sandbox) UtsNsPath() string {
 	return s.nsPath(s.utsns, UTSNS)
 }
 
-//// UtsNsCreate creates a new UTS namespace for the sandbox
-//func (s *Sandbox) UtsNsCreate(utsNs NamespaceIface) error {
-//	utsNs, err := s.nsCreate(utsNs, UTSNS)
-//	if err != nil {
-//		return err
-//	}
-//	s.utsns = utsNs
-//	return nil
-//}
-
 // UtsNsJoin attempts to join the sandbox to an existing UTS namespace
 // This will fail if the sandbox is already part of a UTS namespace
 func (s *Sandbox) UtsNsJoin(nspath, name string) error {
@@ -241,14 +192,40 @@ func (s *Sandbox) UtsNsJoin(nspath, name string) error {
 	return nil
 }
 
-// UtsNsRemove removes the UTS namespace associated with the sandbox
-func (s *Sandbox) UtsNsRemove() error {
-	if s.utsns == nil {
-		logrus.Warn("no UTS namespace")
-		return nil
+// TODO FIXME this unconditionally overwrites the directory
+// we make no guarentees right now the directory is the same
+func (s *Sandbox) RemoveSandboxManagedNamespaces() error {
+	errs := make([]error, 0)
+	var directory string
+	if s.utsns != nil {
+		directory = filepath.Dir(s.utsns.Get().symlink.Name())
+		if err := s.utsns.Remove(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.ipcns != nil {
+		directory = filepath.Dir(s.ipcns.Get().symlink.Name())
+		if err := s.ipcns.Remove(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.netns != nil {
+		directory = filepath.Dir(s.netns.Get().symlink.Name())
+		if err := s.netns.Remove(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	return s.utsns.Remove()
+	if directory != "" {
+		if err := os.RemoveAll(directory); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	var err error
+	if len(errs) != 0 {
+		err = errors.Errorf("Removing namespaces encountered the following errors %v", errs)
+	}
+	return err
 }
 
 // nsPath returns the path to a namespace of the sandbox.

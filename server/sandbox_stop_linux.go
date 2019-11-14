@@ -101,13 +101,7 @@ func (s *Server) stopPodSandbox(ctx context.Context, req *pb.StopPodSandboxReque
 		}
 	}
 	if s.config.ManageNSLifecycle {
-		if err := sb.NetNsRemove(); err != nil {
-			return nil, err
-		}
-		if err := sb.IpcNsRemove(); err != nil {
-			return nil, err
-		}
-		if err := sb.UtsNsRemove(); err != nil {
+		if err := sb.RemoveSandboxManagedNamespaces(); err != nil {
 			return nil, err
 		}
 	}
