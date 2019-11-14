@@ -17,7 +17,21 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const pinnsPath string = "/usr/libexec/crio/pinns"
+var pinnsSearchPath = []string{
+	"/usr/local/libexec/crio/pinns",
+	"/usr/libexec/crio/pinns",
+	"pinns",
+}
+
+func findPinnsPath() string {
+	for _, path := range pinnsSearchPath {
+		if _, err := exec.LookPath(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 
 // Namespace handles data pertaining to a namespace
 type Namespace struct {
@@ -72,7 +86,7 @@ func createNewNamespaces(nsTypes []string) ([]*Namespace, error) {
 		return nil, fmt.Errorf("failed to generate random pinDir name: %v", err)
 	}
 
-	const runDir = "/var/run"
+	const runDir = "/var/run/crio"
 	pinDir := fmt.Sprintf("%s/%x-%x-%x-%x-%x", runDir, b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 
 	err = os.MkdirAll(pinDir, 0755)
@@ -99,6 +113,10 @@ func createNewNamespaces(nsTypes []string) ([]*Namespace, error) {
 		})
 	}
 
+	pinnsPath := findPinnsPath()
+	if pinnsPath == "" {
+		return nil, errors.New("Can't find pinns to pin namespaces")
+	}
 	if _, err := exec.Command(pinnsPath, pinnsArgs...).Output(); err != nil {
 		// cleanup after ourselves
 		for _, info := range mountedNamespaces {
