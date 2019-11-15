@@ -749,7 +749,7 @@ func (s *Server) configureGeneratorForSysctls(ctx context.Context, g generate.Ge
 // the namespace lifecycle.
 // it returns a slice of cleanup funcs, all of which are the respective NamespaceRemove() for the sandbox. The caller should defer the cleanup funcs if there is an error, to make sure
 // each namespace we are managing is properly cleaned up.
-func (s *Server) configureGeneratorForNamespaces(ctx context.Context, hostNetwork, hostIPC, hostPID bool, sb *sandbox.Sandbox, g generate.Generator) (cleanupFuncs []func(), err error) {
+func (s *Server) configureGeneratorForNamespaces(ctx context.Context, hostNetwork, hostIPC, hostPID bool, sb *sandbox.Sandbox, g generate.Generator) (cleanupFuncs []func()error, err error) {
 	managedNamespaces := make([]string, 0, 3)
 	if hostNetwork {
 		err = g.RemoveLinuxNamespace(string(runtimespec.NetworkNamespace))
@@ -767,6 +767,14 @@ func (s *Server) configureGeneratorForNamespaces(ctx context.Context, hostNetwor
 		}
 	} else if s.config.ManageNSLifecycle {
 		managedNamespaces = append(managedNamespaces, sandbox.IPCNS)
+	}
+
+	// Since we need a process to hold open the PID namespace, CRI-O can't manage the NS lifecycle
+	if hostPID {
+		err = g.RemoveLinuxNamespace(string(runtimespec.PIDNamespace))
+		if err != nil {
+			return
+		}
 	}
 
 	// There's no option to set hostUTS
@@ -791,14 +799,8 @@ func (s *Server) configureGeneratorForNamespaces(ctx context.Context, hostNetwor
 				return nil, err
 			}
 		}
-	}
 
-	// Since we need a process to hold open the PID namespace, CRI-O can't manage the NS lifecycle
-	if hostPID {
-		err = g.RemoveLinuxNamespace(string(runtimespec.PIDNamespace))
-		if err != nil {
-			return
-		}
+		cleanupFuncs = append(cleanupFuncs, sb.RemoveSandboxManagedNamespaces)
 	}
 
 	return cleanupFuncs, err
