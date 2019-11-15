@@ -198,19 +198,19 @@ func (s *Sandbox) RemoveSandboxManagedNamespaces() error {
 	errs := make([]error, 0)
 	var directory string
 	if s.utsns != nil {
-		directory = filepath.Dir(s.utsns.Get().symlink.Name())
+		directory = filepath.Dir(s.utsns.Get().Path())
 		if err := s.utsns.Remove(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if s.ipcns != nil {
-		directory = filepath.Dir(s.ipcns.Get().symlink.Name())
+		directory = filepath.Dir(s.ipcns.Get().Path())
 		if err := s.ipcns.Remove(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if s.netns != nil {
-		directory = filepath.Dir(s.netns.Get().symlink.Name())
+		directory = filepath.Dir(s.netns.Get().Path())
 		if err := s.netns.Remove(); err != nil {
 			errs = append(errs, err)
 		}
