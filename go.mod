@@ -33,6 +33,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0
 	github.com/hpcloud/tail v1.0.0
 	github.com/kr/pty v1.1.8
+	github.com/mailru/easygo v0.0.0-20190618140210-3c14a0dc985f
 	github.com/onsi/ginkgo v1.10.3
 	github.com/onsi/gomega v1.7.1
 	github.com/opencontainers/go-digest v1.0.0-rc1
