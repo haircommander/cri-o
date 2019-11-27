@@ -15,13 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type conmonPidAndFds struct {
-	pid      int
-	oomCtlFd int
-	eventFd  int
-}
-
-type Conmonmon struct {
+type conmonmon struct {
 	// ctrID to conmon
 	conmons map[string]*conmonPidAndFds
 	mu      sync.RWMutex
@@ -29,7 +23,7 @@ type Conmonmon struct {
 	server  *ContainerServer // TODO FIXME maybe I just need store
 }
 
-func (c *ContainerServer) NewConmonmon() (*Conmonmon, error) {
+func (c *ContainerServer) newConmonmon() (*conmonmon, error) {
 	config := epoll.EpollConfig{
 		OnWaitError: epollOnError,
 	}
@@ -38,7 +32,7 @@ func (c *ContainerServer) NewConmonmon() (*Conmonmon, error) {
 		return nil, err
 	}
 
-	cmm := Conmonmon{
+	cmm := conmonmon{
 		conmons: make(map[string]*conmonPidAndFds),
 		ep:      ep,
 		server:  c,
@@ -50,7 +44,7 @@ func epollOnError(err error) {
 	logrus.Debugf(err.Error())
 }
 
-func (c *Conmonmon) AddConmon(conmonPID int, ctrID string) error {
+func (c *conmonmon) addConmon(conmonPID int, ctrID string) error {
 	// verify container state running
 	c.mu.RLock()
 	if _, found := c.conmons[ctrID]; found {
@@ -129,13 +123,13 @@ func configureEpollFiles(cgroupMemoryControllerPath []byte) (int, int, error) {
 	if err != nil {
 		return -1, -1, err
 	}
-	// TODO FIXME not cleanning up?
+	// TODO FIXME cleanup on error
 
 	eventFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
 	if err != nil {
 		return -1, -1, err
 	}
-	// TODO FIXME not cleaning up?
+	// TODO FIXME cleanup on error
 
 	eventControlPath := fmt.Sprintf("%s/cgroup.event_control")
 	eventControlFile, err := os.OpenFile(eventControlPath, unix.O_WRONLY|unix.O_CLOEXEC, 0644)
@@ -149,6 +143,80 @@ func configureEpollFiles(cgroupMemoryControllerPath []byte) (int, int, error) {
 	}
 
 	return int(oomFile.Fd()), eventFd, nil
+}
+
+func (c *conmonmon) removeConmon(ctrID string) (lastErr error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// verify conmon exists
+	pidAndFds, found := c.conmons[ctrID]
+	if !found {
+		return errors.Errorf("couldn't find associated conmon associated with container %s", ctrID)
+	}
+	// remove from map
+	delete(c.conmons, ctrID)
+
+	if err := c.ep.Del(pidAndFds.eventFd); err != nil {
+		logrus.Debugf("error removing eventFd for %s from epoll: %v", ctrID, err)
+		lastErr = err
+	}
+
+	if err := pidAndFds.closeFds(); err != nil {
+		lastErr = err
+	}
+}
+
+func (c *conmonmon) restore() (lastErr error) {
+	defer func() {
+		if lastErr == nil {
+			return
+		}
+		if err := c.Shutdown(); err != nil {
+			logrus.Debugf("An error occurred when shutting down conmonmon after a failed restore: %v", err)
+		}
+	}()
+	// loop through containers
+	for _, ctr := range c.listContainers() {
+		// add container to map and register each container's conmon with the epoll instance
+		if err := c.AddConmon(ctr.ID()); err != nil {
+			logrus.Debugf("encountered error adding container %s to conmonmon: %v", ctr.ID(), err)
+			lastErr = err
+			return
+		}
+	}
+}
+
+func (c *conmonmon) shutdown() (lastErr error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.ep.Close(); err != nil {
+		logrus.Debugf("error closing epoll instance %v", err)
+		lastErr = err
+	}
+
+	for _, conmon := range c.conmons {
+		if err := conmon.closeFds(); err != nil {
+			lastErr = err
+		}
+	}
+}
+
+type conmonPidAndFds struct {
+	pid      int
+	oomCtlFd int
+	eventFd  int
+}
+
+func (c *conmonPidAndFds) closeFds() (lastErr error) {
+	if err := syscall.Close(pidAndFds.eventFd); err != nil {
+		logrus.Debugf("error closing eventFd for %s: %v", ctrID, err)
+		lastErr = err
+	}
+	if err := syscall.Close(pidAndFds.oomCtlFd); err != nil {
+		logrus.Debugf("error closing oomCtlFd for %s: %v", ctrID, err)
+		lastErr = err
+	}
 }
 
 type killCB struct {
@@ -180,39 +248,4 @@ func (k *killCB) createOOMFile() error {
 	}
 	oomFd.Close()
 	return nil
-}
-
-func (c *Conmonmon) RemoveConmon(ctrID string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// verify conmon exists
-	pidAndFds, found := c.conmons[ctrID]
-	if !found {
-		return errors.Errorf("couldn't find associated conmon associated with container %s", ctrID)
-	}
-	// remove from map
-	delete(c.conmons, ctrID)
-
-	var lastErr error
-	if err := c.ep.Del(pidAndFds.eventFd); err != nil {
-		logrus.Debugf("error removing eventFd for %s from epoll: %v", ctrID, err)
-		lastErr = err
-	}
-
-	if err := syscall.Close(pidAndFds.eventFd); err != nil {
-		logrus.Debugf("error closing eventFd for %s: %v", ctrID, err)
-		lastErr = err
-	}
-	if err := syscall.Close(pidAndFds.oomCtlFd); err != nil {
-		logrus.Debugf("error closing oomCtlFd for %s: %v", ctrID, err)
-		lastErr = err
-	}
-	return lastErr
-}
-
-func (c *Conmonmon) Restore() {
-	// loop through containers
-	// add container to map
-	// register each container's conmon with the epoll instance
 }
