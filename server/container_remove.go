@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/cri-o/cri-o/internal/pkg/log"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
@@ -18,6 +19,10 @@ func (s *Server) RemoveContainer(ctx context.Context, req *pb.RemoveContainerReq
 	_, err = s.ContainerServer.Remove(ctx, req.ContainerId, true)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := s.RemoveConmon(c); err != nil {
+		logrus.Errorf("failed to remove conmon for %s from monitor: %v", c.ID(), err)
 	}
 
 	log.Infof(ctx, "Removed container %s", c.Description())
