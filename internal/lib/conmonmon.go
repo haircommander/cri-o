@@ -2,12 +2,13 @@ package lib
 
 import (
 	"fmt"
-	"io/ioutil"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/containers/psgo"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -100,22 +101,20 @@ func (c *conmonmon) verifyConmonValid(ctrID string, pid int) error {
 		return errors.Errorf("pid is running in a different mnt namespace")
 	}
 
-	// verify the pid is using the expected executable
-	conmonPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", pid))
+	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(pid)}, []string{"args"})
 	if err != nil {
 		return err
 	}
-	if oci.ConmonPath(c.runtime) != conmonPath {
-		return errors.Errorf("pid is running with a different conmon path %s", conmonPath)
+	if len(psInfo) != 2 || len(psInfo[1]) != 1 {
+		return errors.Errorf("insufficient ps information from pid")
 	}
 
-	// verify the pid is for this container
-	b, err := ioutil.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		return err
+	args := strings.Split(psInfo[1][0], " ")
+	if args[0] != oci.ConmonPath(c.runtime) {
+		return errors.Errorf("pid is running with a different conmon path %s", args[0])
 	}
-	conmonCmdline := string(b)
-	if !strings.Contains(conmonCmdline, ctrID) {
+
+	if !strings.Contains(psInfo[1][0], ctrID) {
 		return errors.Errorf("conmon with pid wasn't called with container ID %s", ctrID)
 	}
 
