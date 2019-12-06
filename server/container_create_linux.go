@@ -614,18 +614,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		if err := specgen.RemoveLinuxNamespace(string(rspec.NetworkNamespace)); err != nil {
 			return nil, err
 		}
-
-		if !isInCRIMounts("/sys", containerConfig.GetMounts()) {
-			specgen.RemoveMount("/sys")
-			specgen.RemoveMount("/sys/fs/cgroup")
-			sysMnt := rspec.Mount{
-				Destination: "/sys",
-				Type:        "bind",
-				Source:      "/sys",
-				Options:     []string{"nosuid", "noexec", "nodev", "ro", "rbind"},
-			}
-			specgen.AddMount(sysMnt)
-		}
 	} else {
 		netNsPath := sb.NetNsPath()
 		if netNsPath == "" {
@@ -637,32 +625,43 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		if err := specgen.AddOrReplaceLinuxNamespace(string(rspec.NetworkNamespace), netNsPath); err != nil {
 			return nil, err
 		}
-
-		if privileged {
-			specgen.RemoveMount("/sys")
-			specgen.RemoveMount("/sys/fs/cgroup")
-
-			sysMnt := rspec.Mount{
-				Destination: "/sys",
-				Type:        "bind",
-				Source:      "/sys",
-				Options:     []string{"nosuid", "noexec", "nodev", "rw", "rbind"},
-			}
-			specgen.AddMount(sysMnt)
-
-			cgroupMnt := rspec.Mount{
-				Destination: "/sys/fs/cgroup",
-				Type:        "cgroup",
-				Source:      "cgroup",
-				Options:     []string{"nosuid", "noexec", "nodev", "rw", "relatime"},
-			}
-			specgen.AddMount(cgroupMnt)
-
-		}
 	}
 
 	for idx, ip := range sb.IPs() {
 		specgen.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
+	}
+
+	if privileged {
+		setOCIBindMountsPrivileged(&specgen)
+
+		specgen.RemoveMount("/sys/fs/cgroup")
+		specgen.RemoveMount("/sys")
+
+		sysMnt := rspec.Mount{
+			Destination: "/sys",
+			Type:        "bind",
+			Source:      "/sys",
+			Options:     []string{"nosuid", "noexec", "nodev", "rw", "rbind"},
+		}
+		specgen.AddMount(sysMnt)
+
+		cgroupMnt := rspec.Mount{
+			Destination: "/sys/fs/cgroup",
+			Type:        "cgroup",
+			Source:      "cgroup",
+			Options:     []string{"nosuid", "noexec", "nodev", "rw", "relatime"},
+		}
+		specgen.AddMount(cgroupMnt)
+	} else if !isInCRIMounts("/sys", containerConfig.GetMounts()) {
+		specgen.RemoveMount("/sys")
+		specgen.RemoveMount("/sys/fs/cgroup")
+		sysMnt := rspec.Mount{
+			Destination: "/sys",
+			Type:        "bind",
+			Source:      "/sys",
+			Options:     []string{"nosuid", "noexec", "nodev", "ro", "rbind"},
+		}
+		specgen.AddMount(sysMnt)
 	}
 
 	// Remove the default /dev/shm mount to ensure we overwrite it
@@ -719,10 +718,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 			Options:     append(options, "bind"),
 		}
 		specgen.AddMount(mnt)
-	}
-
-	if privileged {
-		setOCIBindMountsPrivileged(&specgen)
 	}
 
 	// Set hostname and add env for hostname
@@ -949,7 +944,6 @@ func setupWorkingDirectory(rootfs, mountLabel, containerCwd string) error {
 
 func setOCIBindMountsPrivileged(g *generate.Generator) {
 	spec := g.Config
-	// clear readonly for /sys and cgroup
 	for i := range spec.Mounts {
 		clearReadOnly(&spec.Mounts[i])
 	}
