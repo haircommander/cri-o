@@ -632,8 +632,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}
 
 	if privileged {
-		setOCIBindMountsPrivileged(&specgen)
-
 		specgen.RemoveMount("/sys/fs/cgroup")
 		specgen.RemoveMount("/sys")
 
@@ -649,7 +647,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 			Destination: "/sys/fs/cgroup",
 			Type:        "cgroup",
 			Source:      "cgroup",
-			Options:     []string{"nosuid", "noexec", "nodev", "rw", "relatime"},
+			Options:     []string{"nosuid", "noexec", "nodev", "rw", "rbind"},
 		}
 		specgen.AddMount(cgroupMnt)
 	} else if !isInCRIMounts("/sys", containerConfig.GetMounts()) {
@@ -675,6 +673,11 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}
 	// bind mount the pod shm
 	specgen.AddMount(mnt)
+
+	if privileged {
+		setOCIBindMountsPrivileged(&specgen)
+	}
+
 
 	options := []string{"rw"}
 	if readOnlyRootfs {
