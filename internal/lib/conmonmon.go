@@ -1,10 +1,7 @@
 package lib
 
 import (
-	"fmt"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/containers/psgo"
@@ -75,12 +72,12 @@ func (c *conmonmon) signalConmons() {
 		status := ctr.State().Status
 
 		if status == oci.ContainerStateRunning {
-			if err := c.verifyConmonValid(ctrID, startTime, conmonPID); err != nil {
+			if err := c.verifyConmonValid(startTime, conmonPID); err != nil {
 				logrus.Debugf("conmon pid %d invalid: %v. Killing container %s", conmonPID, err, ctrID)
+				c.conmons.Remove(ctrID)
 				if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
 					logrus.Debugf(err.Error())
 				}
-				c.conmons.Remove(ctrID)
 				oci.SpoofOOM(ctr)
 				if err := c.server.ContainerStateToDisk(ctr); err != nil {
 					logrus.Debugf(err.Error())
@@ -90,45 +87,19 @@ func (c *conmonmon) signalConmons() {
 	}
 }
 
-func (c *conmonmon) verifyConmonValid(ctrID, savedStart string, pid int) error {
+func (c *conmonmon) verifyConmonValid(savedStart string, pid int) error {
 	// verify it's still a valid pid
 	if err := unix.Kill(pid, 0); err != nil {
 		return err
 	}
 
-	// verify we are in the same mnt namespace as the pid
-	conmonMntNS, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/ns/mnt", pid))
+	startTime, err := getProcessStartTime(pid)
 	if err != nil {
 		return err
-	}
-	crioMntNS, err := filepath.EvalSymlinks("/proc/self/ns/mnt")
-	if err != nil {
-		return err
-	}
-	if conmonMntNS != crioMntNS {
-		return errors.Errorf("pid is running in a different mnt namespace")
 	}
 
-	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(pid)}, []string{"args", "stime"})
-	if err != nil {
-		return err
-	}
-	if len(psInfo) != 2 || len(psInfo[1]) != 2 {
-		return errors.Errorf("insufficient ps information from pid")
-	}
-
-	startTime := psInfo[1][1]
 	if startTime != savedStart {
 		return errors.Errorf("pids found to differ in stime: recoreded %s found %s", savedStart, startTime)
-	}
-
-	args := strings.Split(psInfo[1][0], " ")
-	if args[0] != oci.ConmonPath(c.runtime) {
-		return errors.Errorf("pid is running with a different conmon path %s", args[0])
-	}
-
-	if !strings.Contains(psInfo[1][0], ctrID) {
-		return errors.Errorf("conmon with pid wasn't called with container ID %s", ctrID)
 	}
 
 	return nil
@@ -158,23 +129,31 @@ func (c *conmonmon) AddConmon(ctr *oci.Container) error {
 		return err
 	}
 
-	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(conmonPID)}, []string{"stime"})
+	startTime, err := getProcessStartTime(conmonPID)
 	if err != nil {
 		return err
-	}
-
-	if len(psInfo) != 2 || len(psInfo[1]) != 1 {
-		return errors.Errorf("insufficient ps information from pid")
 	}
 
 	ci := &conmonInfo{
 		conmonPID: conmonPID,
 		ctr:       ctr,
-		startTime: psInfo[1][0],
+		startTime: startTime,
 	}
 	c.conmons.Set(ctr.ID(), ci)
 
 	return nil
+}
+
+func getProcessStartTime(pid int) (string, error) {
+	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(pid)}, []string{"stime"})
+	if err != nil {
+		return "", err
+	}
+	if len(psInfo) != 2 || len(psInfo[1]) != 1 {
+		return "", errors.Errorf("insufficient ps information from pid")
+	}
+
+	return psInfo[1][0], nil
 }
 
 // RemoveConmon removes a container's conmon to map of those watched
