@@ -17,8 +17,8 @@ require (
 	github.com/containers/conmon v2.0.3+incompatible
 	github.com/containers/image/v5 v5.0.0
 	github.com/containers/libpod v1.6.3-0.20191101152258-04e8bf3dba50
-	github.com/containers/storage v1.15.2
 	github.com/containers/psgo v1.3.2
+	github.com/containers/storage v1.15.2
 	github.com/coreos/go-systemd/v22 v22.0.0
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/cri-o/ocicni v0.1.1-0.20190702175919-7762645d18ca
@@ -42,6 +42,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.0.1
 	github.com/opencontainers/runtime-tools v0.9.0
 	github.com/opencontainers/selinux v1.3.1-0.20190929122143-5215b1806f52
+	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.2.1
 	github.com/seccomp/containers-golang v0.3.1

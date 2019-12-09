@@ -510,6 +510,8 @@ github.com/openshift/imagebuilder/strslice
 # github.com/opentracing/opentracing-go v1.1.0
 github.com/opentracing/opentracing-go
 github.com/opentracing/opentracing-go/log
+# github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
+github.com/orcaman/concurrent-map
 # github.com/ostreedev/ostree-go v0.0.0-20190702140239-759a8c1ac913
 github.com/ostreedev/ostree-go/pkg/glibobject
 github.com/ostreedev/ostree-go/pkg/otbuiltin

@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/containers/psgo"
 	"github.com/cri-o/cri-o/internal/oci"
+	"github.com/orcaman/concurrent-map"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -17,13 +17,17 @@ import (
 
 var sleepTime = 5 * time.Minute
 
+type conmonInfo struct {
+	ctr       *oci.Container
+	conmonPID int
+}
+
 // conmonmon is a struct responsible for monitoring conmons
 // it contains a map of containers -> conmonPID, and sleeps on
 // a loop, waiting for a conmon to die. if it has, it kills the associated
 // container.
 type conmonmon struct {
-	conmons   map[*oci.Container]int
-	mu        sync.RWMutex
+	conmons   cmap.ConcurrentMap
 	closeChan chan bool
 	runtime   *oci.Runtime
 	server    *ContainerServer
@@ -33,7 +37,7 @@ type conmonmon struct {
 // given a runtime. It also starts the monitoring routine
 func (c *ContainerServer) newConmonmon(r *oci.Runtime) *conmonmon {
 	cmm := conmonmon{
-		conmons:   make(map[*oci.Container]int),
+		conmons:   cmap.New(),
 		runtime:   r,
 		server:    c,
 		closeChan: make(chan bool),
@@ -61,18 +65,20 @@ func (c *conmonmon) monitorConmons() {
 // if they're not, the container is killed and we spoof
 // an OOM event for the container
 func (c *conmonmon) signalConmons() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	for item := range c.conmons.IterBuffered() {
+		ctr := item.Val.(*conmonInfo).ctr
+		conmonPID := item.Val.(*conmonInfo).conmonPID
 
-	for ctr, conmonPID := range c.conmons {
+		ctrID := item.Key
 		status := ctr.State().Status
+
 		if status == oci.ContainerStateRunning {
-			if err := c.verifyConmonValid(ctr.ID(), conmonPID); err != nil {
-				logrus.Debugf("conmon pid %d invalid: %v. Killing container %s", conmonPID, err, ctr.ID())
+			if err := c.verifyConmonValid(ctrID, conmonPID); err != nil {
+				logrus.Debugf("conmon pid %d invalid: %v. Killing container %s", conmonPID, err, ctrID)
 				if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
 					logrus.Debugf(err.Error())
 				}
-				delete(c.conmons, ctr)
+				c.conmons.Remove(ctrID)
 				oci.SpoofOOM(ctr)
 				if err := c.server.ContainerStateToDisk(ctr); err != nil {
 					logrus.Debugf(err.Error())
@@ -132,9 +138,7 @@ func (c *conmonmon) AddConmon(ctr *oci.Container) error {
 		return nil
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, found := c.conmons[ctr]; found {
+	if c.conmons.Has(ctr.ID()) {
 		return errors.Errorf("container ID: %s already has a registered conmon", ctr.ID())
 	}
 
@@ -147,27 +151,25 @@ func (c *conmonmon) AddConmon(ctr *oci.Container) error {
 		return err
 	}
 
-	c.conmons[ctr] = conmonPID
+	ci := &conmonInfo{
+		conmonPID: conmonPID,
+		ctr:       ctr,
+	}
+	c.conmons.Set(ctr.ID(), ci)
 
 	return nil
 }
 
 // RemoveConmon removes a container's conmon to map of those watched
-func (c *conmonmon) RemoveConmon(ctr *oci.Container) (lastErr error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+func (c *conmonmon) RemoveConmon(ctr *oci.Container) {
 	// verify conmon exists
-	_, found := c.conmons[ctr]
-	if !found {
+	if !c.conmons.Has(ctr.ID()) {
 		// we can be idempotent here, because there are multiple ways a container can
 		// not be tracked anymore
-		return nil
+		return
 	}
 	// remove from map
-	delete(c.conmons, ctr)
-
-	return lastErr
+	c.conmons.Remove(ctr.ID())
 }
 
 // ShutdownConmonmon tells conmonmon to stop sleeping on a loop,
