@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/containers/image/v5/types"
@@ -26,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/kubelet/dockershim/network/hostport"
+	sync "github.com/sasha-s/go-deadlock"
 )
 
 // ContainerServer implements the ImageServer
@@ -41,7 +41,7 @@ type ContainerServer struct {
 	podIDIndex           *truncindex.TruncIndex
 	Hooks                *hooks.Manager
 
-	stateLock sync.Locker
+	stateLock *sync.Mutex
 	state     *containerServerState
 	config    *libconfig.Config
 

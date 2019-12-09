@@ -2,7 +2,7 @@ package cmap
 
 import (
 	"encoding/json"
-	"sync"
+	sync "github.com/sasha-s/go-deadlock"
 )
 
 var SHARD_COUNT = 32

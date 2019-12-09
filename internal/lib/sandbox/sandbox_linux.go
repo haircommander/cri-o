@@ -9,7 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sync"
+	sync "github.com/sasha-s/go-deadlock"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/docker/docker/pkg/mount"

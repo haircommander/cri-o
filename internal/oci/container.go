@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	sync "github.com/sasha-s/go-deadlock"
 	"syscall"
 	"time"
 

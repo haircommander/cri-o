@@ -1,6 +1,7 @@
 package oci
 
-import "sync"
+import sync "github.com/sasha-s/go-deadlock"
+
 
 // memoryStore implements a Store in memory.
 type memoryStore struct {

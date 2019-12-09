@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"sync"
+	sync "github.com/sasha-s/go-deadlock"
 	"syscall"
 	"time"
 

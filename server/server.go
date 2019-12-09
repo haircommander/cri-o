@@ -15,7 +15,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
+	sync "github.com/sasha-s/go-deadlock"
 	"time"
 
 	"github.com/containers/image/v5/pkg/sysregistriesv2"
@@ -242,13 +242,14 @@ func (s *Server) cleanupSandboxesOnShutdown(ctx context.Context) {
 
 // Shutdown attempts to shut down the server's storage cleanly
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.ShutdownConmonmon()
+
 	// why do this on clean shutdown! we want containers left running when crio
 	// is down for whatever reason no?!
 	// notice this won't trigger just on system halt but also on normal
 	// crio.service restart!!!
 	s.cleanupSandboxesOnShutdown(ctx)
 
-	s.ShutdownConmonmon()
 	return s.ContainerServer.Shutdown()
 }
 
