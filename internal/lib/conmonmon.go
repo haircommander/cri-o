@@ -38,7 +38,7 @@ func (c *ContainerServer) newConmonmon(r *oci.Runtime) *conmonmon {
 		conmons:   cmap.New(),
 		runtime:   r,
 		server:    c,
-		closeChan: make(chan bool),
+		closeChan: make(chan bool, 2),
 	}
 	go cmm.monitorConmons()
 	return &cmm
@@ -75,13 +75,15 @@ func (c *conmonmon) signalConmons() {
 			if err := c.verifyConmonValid(startTime, conmonPID); err != nil {
 				logrus.Debugf("conmon pid %d invalid: %v. Killing container %s", conmonPID, err, ctrID)
 				c.conmons.Remove(ctrID)
-				if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
-					logrus.Debugf(err.Error())
-				}
-				oci.SpoofOOM(ctr)
-				if err := c.server.ContainerStateToDisk(ctr); err != nil {
-					logrus.Debugf(err.Error())
-				}
+				go func() {
+					if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
+						logrus.Debugf(err.Error())
+					}
+					oci.SpoofOOM(ctr)
+					if err := c.server.ContainerStateToDisk(ctr); err != nil {
+						logrus.Debugf(err.Error())
+					}
+				}()
 			}
 		}
 	}
