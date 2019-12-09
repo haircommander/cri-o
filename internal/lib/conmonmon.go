@@ -20,6 +20,7 @@ var sleepTime = 5 * time.Minute
 type conmonInfo struct {
 	ctr       *oci.Container
 	conmonPID int
+	startTime string
 }
 
 // conmonmon is a struct responsible for monitoring conmons
@@ -68,12 +69,13 @@ func (c *conmonmon) signalConmons() {
 	for item := range c.conmons.IterBuffered() {
 		ctr := item.Val.(*conmonInfo).ctr
 		conmonPID := item.Val.(*conmonInfo).conmonPID
+		startTime := item.Val.(*conmonInfo).startTime
 
 		ctrID := item.Key
 		status := ctr.State().Status
 
 		if status == oci.ContainerStateRunning {
-			if err := c.verifyConmonValid(ctrID, conmonPID); err != nil {
+			if err := c.verifyConmonValid(ctrID, startTime, conmonPID); err != nil {
 				logrus.Debugf("conmon pid %d invalid: %v. Killing container %s", conmonPID, err, ctrID)
 				if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
 					logrus.Debugf(err.Error())
@@ -88,7 +90,7 @@ func (c *conmonmon) signalConmons() {
 	}
 }
 
-func (c *conmonmon) verifyConmonValid(ctrID string, pid int) error {
+func (c *conmonmon) verifyConmonValid(ctrID, savedStart string, pid int) error {
 	// verify it's still a valid pid
 	if err := unix.Kill(pid, 0); err != nil {
 		return err
@@ -107,12 +109,17 @@ func (c *conmonmon) verifyConmonValid(ctrID string, pid int) error {
 		return errors.Errorf("pid is running in a different mnt namespace")
 	}
 
-	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(pid)}, []string{"args"})
+	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(pid)}, []string{"args", "stime"})
 	if err != nil {
 		return err
 	}
-	if len(psInfo) != 2 || len(psInfo[1]) != 1 {
+	if len(psInfo) != 2 || len(psInfo[1]) != 2 {
 		return errors.Errorf("insufficient ps information from pid")
+	}
+
+	startTime := psInfo[1][1]
+	if startTime != savedStart {
+		return errors.Errorf("pids found to differ in stime: recoreded %s found %s", savedStart, startTime)
 	}
 
 	args := strings.Split(psInfo[1][0], " ")
@@ -151,9 +158,19 @@ func (c *conmonmon) AddConmon(ctr *oci.Container) error {
 		return err
 	}
 
+	psInfo, err := psgo.ProcessInfoByPids([]string{strconv.Itoa(conmonPID)}, []string{"stime"})
+	if err != nil {
+		return err
+	}
+
+	if len(psInfo) != 2 || len(psInfo[1]) != 1 {
+		return errors.Errorf("insufficient ps information from pid")
+	}
+
 	ci := &conmonInfo{
 		conmonPID: conmonPID,
 		ctr:       ctr,
+		startTime: psInfo[1][0],
 	}
 	c.conmons.Set(ctr.ID(), ci)
 
