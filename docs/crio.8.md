@@ -242,7 +242,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--seccomp-profile**="": Path to the seccomp.json profile to be used as the runtime's default. If not specified, then the internal default seccomp profile will be used. (default: "")
 
-**--selinux**: Enable selinux support (default: false)
+**--selinux**: Enable selinux support (default: true)
 
 **--signature-policy**="": Path to signature policy JSON file. (default: "", to use the system-wide default)
 
