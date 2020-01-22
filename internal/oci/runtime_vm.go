@@ -74,6 +74,11 @@ func newRuntimeVM(path string) RuntimeImpl {
 	}
 }
 
+// TODO FIXME
+func (r *runtimeVM) CreateAndDeleteContainer(c *Container) error {
+	return nil
+}
+
 // CreateContainer creates a container.
 func (r *runtimeVM) CreateContainer(c *Container, cgroupParent string) (err error) {
 	logrus.Debug("runtimeVM.createContainer() start")

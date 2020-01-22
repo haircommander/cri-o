@@ -52,6 +52,7 @@ type Runtime struct {
 // runtimes. Assumptions based on the fact that a container process runs
 // on the host will be limited to the RuntimeOCI implementation.
 type RuntimeImpl interface {
+	CreateAndDeleteContainer(*Container) error
 	CreateContainer(*Container, string) error
 	StartContainer(*Container) error
 	ExecContainer(*Container, []string, io.Reader, io.WriteCloser, io.WriteCloser,
@@ -230,6 +231,27 @@ func (r *Runtime) RuntimeImpl(c *Container) (RuntimeImpl, error) {
 	}
 
 	return impl, nil
+}
+
+// CreateAndDeleteContainer creates the container, but does not start tracking its lifecycle
+// it can be used to use the runtime to configure namespaces and sysctls, without the memory overhead
+// of actually running it
+func (r *Runtime) CreateAndDeleteContainer(c *Container) error {
+	if !c.Spoofed() {
+		return fmt.Errorf("container passed to CreateAndDeleteContainer is not spoofed. Use CreateContainer instead")
+	}
+	// Instantiate a new runtime implementation for this new container
+	impl, err := r.newRuntimeImpl(c)
+	if err != nil {
+		return err
+	}
+
+	// Assign this runtime implementation to the current container
+	r.runtimeImplMapMutex.Lock()
+	r.runtimeImplMap[c.ID()] = impl
+	r.runtimeImplMapMutex.Unlock()
+
+	return impl.CreateAndDeleteContainer(c)
 }
 
 // CreateContainer creates a container.

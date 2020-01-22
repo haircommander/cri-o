@@ -74,6 +74,14 @@ type exitCodeInfo struct {
 	Message  string `json:"message,omitempty"`
 }
 
+func (r *runtimeOCI) CreateAndDeleteContainer(c *Container) error {
+	if err := utils.ExecCmdWithStdStreams(os.Stdin, os.Stdout, os.Stderr,
+		r.path, rootFlag, r.root, "create", "-b", c.BundlePath(), c.ID()); err != nil {
+		return err
+	}
+	return r.DeleteContainer(c)
+}
+
 // CreateContainer creates a container.
 func (r *runtimeOCI) CreateContainer(c *Container, cgroupParent string) (err error) {
 	var stderrBuf bytes.Buffer

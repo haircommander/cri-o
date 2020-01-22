@@ -108,12 +108,13 @@ func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations,
 	return c, nil
 }
 
-func NewSpoofedContainer(id, name string, labels map[string]string) *Container {
+func NewSpoofedContainer(id, name, bundlePath string, labels map[string]string) *Container {
 	c := &Container{
-		id:      id,
-		name:    name,
-		labels:  labels,
-		spoofed: true,
+		id:         id,
+		name:       name,
+		labels:     labels,
+		spoofed:    true,
+		bundlePath: bundlePath,
 	}
 	return c
 }

@@ -537,7 +537,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 
 		container.SetSpec(g.Config)
 	} else {
-		container = oci.NewSpoofedContainer(id, containerName, labels)
+		container = oci.NewSpoofedContainer(id, containerName, podContainer.RunDir, labels)
 	}
 
 	if err := sb.SetInfraContainer(container); err != nil {
@@ -618,6 +618,8 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		if err := s.MonitorConmon(container); err != nil {
 			log.Errorf(ctx, "%v", err)
 		}
+	} else if err := s.Runtime().CreateAndDeleteContainer(container); err != nil {
+		return nil, err
 	}
 
 	if !s.config.ManageNSLifecycle {

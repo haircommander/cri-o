@@ -444,7 +444,7 @@ func (c *ContainerServer) LoadSandbox(id string) error {
 			return fmt.Errorf("error adding conmon of sandbox container %s to monitoring loop: %v", scontainer.ID(), err)
 		}
 	} else {
-		scontainer = oci.NewSpoofedContainer(cID, cname, labels)
+		scontainer = oci.NewSpoofedContainer(cID, cname, sandboxPath, labels)
 	}
 
 	sb.SetCreated()
