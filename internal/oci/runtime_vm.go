@@ -76,6 +76,24 @@ func newRuntimeVM(path string) RuntimeImpl {
 
 // TODO FIXME
 func (r *runtimeVM) CreateAndDeleteContainer(c *Container) error {
+	// We can now create the container, interacting with the server
+	request := &task.CreateTaskRequest{
+		ID:       c.ID(),
+		Bundle:   c.BundlePath(),
+	}
+
+	if err := r.sendCreateRequest(request, c.ID()); err != nil {
+		return err
+	}
+	if err := r.remove(r.ctx, c.ID(), ""); err != nil {
+		return err
+	}
+
+	if _, err := r.task.Shutdown(r.ctx, &task.ShutdownRequest{ID: c.ID()}); err != nil {
+		return err
+	}
+
+
 	return nil
 }
 
@@ -134,6 +152,11 @@ func (r *runtimeVM) CreateContainer(c *Container, cgroupParent string) (err erro
 		Terminal: containerIO.Config().Terminal,
 	}
 
+	err = r.sendCreateRequest(request, c.ID())
+	return err
+}
+
+func (r *runtimeVM) sendCreateRequest(request *task.CreateTaskRequest, ctrID string) (err error) {
 	createdCh := make(chan error)
 	go func() {
 		// Create the container
@@ -150,15 +173,15 @@ func (r *runtimeVM) CreateContainer(c *Container, cgroupParent string) (err erro
 			return errors.Errorf("CreateContainer failed: %v", err)
 		}
 	case <-time.After(ContainerCreateTimeout):
-		if err := r.remove(r.ctx, c.ID(), ""); err != nil {
+		if err := r.remove(r.ctx, ctrID, ""); err != nil {
 			return err
 		}
 		<-createdCh
 		return errors.Errorf("CreateContainer timeout (%v)", ContainerCreateTimeout)
 	}
-
 	return nil
 }
+
 
 func (r *runtimeVM) startRuntimeDaemon(c *Container) error {
 	logrus.Debug("runtimeVM.startRuntimeDaemon() start")
