@@ -63,7 +63,7 @@ listen = "{{ .Listen }}"
 
 # Host IPs are the addresses to be used for the host network.
 # It is not possible to assign more than two addresses right now.
-host_ip = [{{ range $opt := .HostIP }}{{ printf "\n%t%q," $opt }}{{ end }}
+host_ips = [{{ range $opt := .HostIPs }}{{ printf "\n\t%q," $opt }}{{ end }}
 ]
 
 # IP address on which the stream server will listen.

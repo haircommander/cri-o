@@ -416,7 +416,7 @@ func New(
 
 	bindAddress := net.ParseIP(config.StreamAddress)
 	if bindAddress == nil {
-		hostIPs := s.getHostIPs(config.HostIP)
+		hostIPs := s.getHostIPs(config.HostIPs)
 		bindAddress = hostIPs[0]
 	}
 

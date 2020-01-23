@@ -371,8 +371,11 @@ type APIConfig struct {
 	// communication with the tls encrypted stream
 	StreamTLSCA string `toml:"stream_tls_ca"`
 
-	// HostIP is the IP address that the server uses where it needs to use the primary host IP.
-	HostIP []string `toml:"host_ip"`
+	// Deprecated: use HostIPs option below
+	HostIP string `toml:"host_ip"`
+
+	// HostIPs is the IP address that the server uses where it needs to use the primary host IP.
+	HostIPs []string `toml:"host_ips"`
 }
 
 // MetricsConfig specifies all necessary configuration for Prometheus based
@@ -592,6 +595,14 @@ func (c *APIConfig) Validate(onExecution bool) error {
 	if c.GRPCMaxRecvMsgSize <= 0 {
 		c.GRPCMaxRecvMsgSize = defaultGRPCMaxMsgSize
 	}
+	// merge deprecated option HostIP with new option HostIPs
+	// set HostIP to empty to have it no longer printed in configs
+	if c.HostIP != "" {
+		if len(c.HostIPs) < 2 {
+			c.HostIPs = append(c.HostIPs, c.HostIP)
+		}
+		c.HostIP = ""
+	}
 
 	if onExecution {
 		if err := os.MkdirAll(filepath.Dir(c.Listen), 0755); err != nil {
@@ -606,10 +617,10 @@ func (c *APIConfig) Validate(onExecution bool) error {
 		}
 
 		// Validate user provided host IPs
-		if len(c.HostIP) > 2 {
+		if len(c.HostIPs) > 2 {
 			return errors.New("It's not possible to assign more than two host IPs")
 		}
-		for _, ip := range c.HostIP {
+		for _, ip := range c.HostIPs {
 			if net.ParseIP(ip) == nil {
 				return errors.Errorf("Unable to parse host IP: %v", ip)
 			}

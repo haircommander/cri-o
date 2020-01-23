@@ -38,7 +38,7 @@ h
 --grpc-max-recv-msg-size
 --grpc-max-send-msg-size
 --hooks-dir
---host-ip
+--host-ips
 --image-volumes
 --insecure-registry
 --listen

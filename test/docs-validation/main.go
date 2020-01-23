@@ -31,6 +31,7 @@ var (
 		"plugin_dir",                  // deprecated
 		"runtimes",                    // printed as separate table
 		"manage_network_ns_lifecycle", // deprecated
+		"host_ip",                     // deprecated
 	}
 
 	// Tags where it should not validate the values

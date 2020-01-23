@@ -107,8 +107,8 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) (string, error) {
 	if ctx.IsSet("stream-address") {
 		config.StreamAddress = ctx.String("stream-address")
 	}
-	if ctx.IsSet("host-ip") {
-		config.HostIP = ctx.StringSlice("host-ip")
+	if ctx.IsSet("host-ips") {
+		config.HostIPs = ctx.StringSlice("host-ips")
 	}
 	if ctx.IsSet("stream-port") {
 		config.StreamPort = ctx.String("stream-port")
@@ -638,8 +638,8 @@ func getCrioFlags(defConf *libconfig.Config, systemContext *types.SystemContext)
 			EnvVars: []string{"CONTAINER_GRPC_MAX_SEND_MSG_SIZE"},
 		},
 		&cli.StringSliceFlag{
-			Name:    "host-ip",
-			Value:   cli.NewStringSlice(defConf.HostIP...),
+			Name:    "host-ips",
+			Value:   cli.NewStringSlice(defConf.HostIPs...),
 			Usage:   "Host IPs are the addresses to be used for the host network and can be specified up to two times",
 			EnvVars: []string{"CONTAINER_HOST_IP"},
 		},

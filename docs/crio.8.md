@@ -41,7 +41,7 @@ crio
 [--grpc-max-send-msg-size]=[value]
 [--help|-h]
 [--hooks-dir]=[value]
-[--host-ip]=[value]
+[--host-ips]=[value]
 [--image-volumes]=[value]
 [--insecure-registry]=[value]
 [--listen]=[value]
@@ -186,7 +186,7 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
     Kubernetes configuration are considered. Bind mounts that CRI-O
     inserts by default (e.g. '/dev/shm') are not considered. (default: [])
 
-**--host-ip**="": Host IPs are the addresses to be used for the host network and can be specified up to two times (default: [])
+**--host-ips**="": Host IPs are the addresses to be used for the host network and can be specified up to two times (default: [])
 
 **--image-volumes**="": Image volume handling ('mkdir', 'bind', or 'ignore')
     1. mkdir: A directory is created inside the container root filesystem for the volumes.
