@@ -747,7 +747,19 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 
 		for _, hooksDir := range c.HooksDir {
 			if err := utils.IsDirectory(hooksDir); err != nil {
-				return errors.Wrapf(err, "invalid hooks_dir: %s", err)
+				if hooksDir != hooks.DefaultDir {
+					return errors.Wrapf(err, "invalid hooks_dir: %s", err)
+				}
+
+				// the default hooks dir used to be owned by the package oci-systemd-hook
+				// however, that package is no longer shipped or required for cri-o
+				// it's kind of odd that there can be a installation of cri-o that doesn't
+				// have every necessary directory, and that without this directory, cri-o will brick
+				// instead, let's create it, but only if it's the default. Otherwise, the user should
+				// be responsible for creating it
+				if err := os.MkdirAll(hooksDir, 0777); err != nil {
+					return errors.Wrapf(err, "failed to create default hooks dir %s", hooksDir)
+				}
 			}
 		}
 
