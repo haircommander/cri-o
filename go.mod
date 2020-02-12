@@ -16,7 +16,6 @@ require (
 	github.com/containers/image/v5 v5.2.0
 	github.com/containers/libpod v1.7.0
 	github.com/containers/ocicrypt v0.0.0-20191112201931-142388cb70de
-	github.com/containers/psgo v1.4.0
 	github.com/containers/storage v1.15.8
 	github.com/coreos/go-systemd/v22 v22.0.0
 	github.com/cpuguy83/go-md2man v1.0.10
@@ -31,8 +30,11 @@ require (
 	github.com/google/renameio v0.1.0
 	github.com/google/uuid v1.1.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0
+	github.com/gxed/GoEndian v0.0.0-20160916112711-0f5c6873267e // indirect
+	github.com/gxed/eventfd v0.0.0-20160916113412-80a92cca79a8
 	github.com/hpcloud/tail v1.0.0
 	github.com/kr/pty v1.1.8
+	github.com/mailru/easygo v0.0.0-20190618140210-3c14a0dc985f
 	github.com/mtrmac/gpgme v0.1.2 // indirect
 	github.com/onsi/ginkgo v1.11.0
 	github.com/onsi/gomega v1.8.1
