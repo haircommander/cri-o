@@ -393,6 +393,10 @@ github.com/googleapis/gnostic/extensions
 github.com/gorilla/mux
 # github.com/grpc-ecosystem/go-grpc-middleware v1.1.0
 github.com/grpc-ecosystem/go-grpc-middleware
+# github.com/gxed/GoEndian v0.0.0-20160916112711-0f5c6873267e
+github.com/gxed/GoEndian
+# github.com/gxed/eventfd v0.0.0-20160916113412-80a92cca79a8
+github.com/gxed/eventfd
 # github.com/hashicorp/errwrap v1.0.0
 github.com/hashicorp/errwrap
 # github.com/hashicorp/go-multierror v1.0.0
@@ -435,6 +439,8 @@ github.com/konsorten/go-windows-terminal-sequences
 github.com/kr/pty
 # github.com/lithammer/dedent v1.1.0
 github.com/lithammer/dedent
+# github.com/mailru/easygo v0.0.0-20190618140210-3c14a0dc985f
+github.com/mailru/easygo/netpoll
 # github.com/mattn/go-shellwords v1.0.9
 github.com/mattn/go-shellwords
 # github.com/matttproud/golang_protobuf_extensions v1.0.1

@@ -86,6 +86,7 @@ func (s *Server) RemovePodSandbox(ctx context.Context, req *pb.RemovePodSandboxR
 		if err := s.StorageRuntimeServer().StopContainer(sb.ID()); err != nil && errors.Cause(err) != storage.ErrContainerUnknown {
 			log.Warnf(ctx, "failed to stop sandbox container in pod sandbox %s: %v", sb.ID(), err)
 		}
+		s.StopMonitoringConmon(podInfraContainer)
 	}
 
 	if err := sb.UnmountShm(); err != nil {
