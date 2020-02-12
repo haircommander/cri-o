@@ -98,12 +98,17 @@ func (c *conmonmon) verifyConmonValid(savedStart string, pid int) error {
 // oomKillContainer does everything required to pretend as though the container OOM'd
 // this includes killing, setting its state, and writing that state to disk
 func (c *conmonmon) oomKillContainer(ctr *oci.Container) {
+	// we want to wait to make sure this is really conmon OOMing and not an unordered shutdown of the cgroup
+	time.Sleep(30 * time.Second)
 	if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
-		logrus.Debugf(err.Error())
+		// in all likelihood, we'd get here because the container was killed or stopped after we made the last state check,
+		// but before we called $runtime kill. We should probably log it just to be sure.
+		logrus.Errorf("Failed to spoof OOM of container %s: %v. This could be expected.", ctr.ID(), err)
+		return
 	}
 	c.runtime.SpoofOOM(ctr)
 	if err := c.server.ContainerStateToDisk(ctr); err != nil {
-		logrus.Debugf(err.Error())
+		logrus.Errorf("Failed to save spoofed OOM state of container %s: %v", err)
 	}
 }
 
