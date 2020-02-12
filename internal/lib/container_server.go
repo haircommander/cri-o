@@ -146,7 +146,10 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 		config: config,
 	}
 
-	cmm := cs.newConmonmon(runtime)
+	cmm, err := cs.newConmonmon(runtime)
+	if err != nil {
+		return nil, err
+	}
 	cs.conmonmon = cmm
 
 	return cs, nil
