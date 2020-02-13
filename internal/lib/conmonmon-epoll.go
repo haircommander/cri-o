@@ -7,8 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	epoll "github.com/mailru/easygo/netpoll"
-	"github.com/gxed/eventfd"
+	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -26,58 +25,47 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 	fmt.Fprintf(os.Stderr, "found cgroup subsystem path %s for %d\n", cgroupMemoryPath, info.conmonPID)
 
 	oomControl := filepath.Join(cgroupMemoryPath, "memory.oom_control")
+	fmt.Fprintf(os.Stderr, "got %s\n", oomControl)
+
 	eventControl := filepath.Join(cgroupMemoryPath, "cgroup.event_control")
+	fmt.Fprintf(os.Stderr, "got %s\n", oomControl)
 
-	fmt.Fprintf(os.Stderr, "got %s %s\n", oomControl, eventControl)
+	info.oomControlPath = oomControl
 
-	efd, err := eventfd.New()
-	if err != nil {
-		return errors.Wrapf(err, "failed to open event fd to listen for conmon OOMs")
-	}
-	defer efd.Close()
-
-	cfd, err := os.OpenFile(eventControl, os.O_WRONLY, 0755)
-	if err != nil {
-		return errors.Wrapf(err, "failed to open file %s", eventControl)
-	}
-	defer cfd.Close()
-
-	// not closed here, closed when conmon is removed
-	// TODO FIXME if we error this should be closed
-	ofd, err := os.Open(oomControl)
-	if err != nil {
-		return errors.Wrapf(err, "failed to open file %s", oomControl)
+	c.lock.Lock()
+	fmt.Fprintf(os.Stderr, "looking for %s\n", oomControl)
+	if _, found := c.oomControlToConmons[oomControl]; found {
+		c.lock.Unlock()
+		return errors.Errorf("container ID: %s already has a registered conmon", info.ctr.ID())
 	}
 
-	content := fmt.Sprintf("%d %d", efd.Fd(), ofd.Fd())
-	fmt.Fprintf(os.Stderr, "writing content: %s to %s\n", content, cfd.Name())
-	if _, err := cfd.WriteString(content); err != nil {
-		return errors.Wrapf(err, "failed to write %s to %s", content, eventControl)
+	if err := c.watcher.Add(oomControl); err != nil {
+		return errors.Wrapf(err, "failed to watch %s", oomControl)
 	}
 
-	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
-	if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN, info.oomKillContainer); err != nil {
-		return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
-	}
+	fmt.Fprintf(os.Stderr, "watching %s\n", oomControl)
+	c.oomControlToConmons[oomControl] = info
+	c.ctrToConmons[info.ctr] = info
 
-	info.eventControlFd = efd.Fd()
-	info.oomControl = ofd
+	fmt.Fprintf(os.Stderr, "%s is saved\n", oomControl)
+	c.lock.Unlock()
+
 
 	return nil
 }
 
 // oomKillContainer does everything required to pretend as though the container OOM'd
 // this includes killing, setting its state, and writing that state to disk
-func (ci *conmonInfo) oomKillContainer(epoll.EpollEvent) {
+func (c *conmonmon) oomKillContainer(ctr *oci.Container) {
 	fmt.Fprintf(os.Stderr, "oom killing container\n")
-	if err := ci.cmm.runtime.SignalContainer(ci.ctr, unix.SIGKILL); err != nil {
+	if err := c.runtime.SignalContainer(ctr, unix.SIGKILL); err != nil {
 		// in all likelihood, we'd get here because the container was killed or stopped after we made the last state check,
 		// but before we called $runtime kill. We should probably log it just to be sure.
-		logrus.Errorf("Failed to spoof OOM of container %s: %v. This could be expected.", ci.ctr.ID(), err)
+		logrus.Errorf("Failed to spoof OOM of container %s: %v. This could be expected.", ctr.ID(), err)
 		return
 	}
-	ci.cmm.runtime.SpoofOOM(ci.ctr)
-	if err := ci.cmm.server.ContainerStateToDisk(ci.ctr); err != nil {
+	c.runtime.SpoofOOM(ctr)
+	if err := c.server.ContainerStateToDisk(ctr); err != nil {
 		logrus.Errorf("Failed to save spoofed OOM state of container %s: %v", err)
 	}
 }
@@ -124,6 +112,5 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 
 func (c *conmonmon) deregisterConmon(info *conmonInfo) {
 	fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
-	c.ep.Del(info.eventControlFd)
-	info.oomControl.Close()
+	c.watcher.Remove(info.oomControlPath)
 }

@@ -585,6 +585,10 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 		}
 	}()
 
+	if err := s.MonitorConmon(container); err != nil {
+		log.Errorf(ctx, "%v", err)
+	}
+
 	s.addContainer(container)
 	defer func() {
 		if err != nil {
@@ -612,10 +616,6 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 	}
 
 	container.SetCreated()
-
-	if err := s.MonitorConmon(container); err != nil {
-		log.Errorf(ctx, "%v", err)
-	}
 
 	log.Infof(ctx, "Created container %s: %s", container.ID(), container.Description())
 	resp := &pb.CreateContainerResponse{

@@ -584,6 +584,11 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		return nil, err
 	}
 
+	if err := s.MonitorConmon(container); err != nil {
+		return nil, err
+	}
+
+
 	if err := s.Runtime().StartContainer(container); err != nil {
 		return nil, err
 	}
@@ -627,10 +632,6 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	sb.AddIPs(ips)
 
 	sb.SetCreated()
-
-	if err := s.MonitorConmon(container); err != nil {
-		log.Errorf(ctx, "%v", err)
-	}
 
 	log.Infof(ctx, "ran pod sandbox %s with infra container: %s", container.ID(), container.Description())
 	resp = &pb.RunPodSandboxResponse{PodSandboxId: id}

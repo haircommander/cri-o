@@ -33,6 +33,7 @@ func (s *Server) StartContainer(ctx context.Context, req *pb.StartContainerReque
 		}
 	}()
 
+	// TODO FIXME is this called early enough?
 	// in the event a container is created, conmon is oom killed, then the container
 	// is started, we want to start the watcher on it, and appropriately kill it.
 	// this situation is VERY unlikely, but conmonmon exists because the kernel OOM killer
