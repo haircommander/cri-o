@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"strings"
-	"time"
 	"os"
+	"path/filepath"
 
 	epoll "github.com/mailru/easygo/netpoll"
 	"github.com/gxed/eventfd"
@@ -17,15 +17,18 @@ import (
 var cgroupRoot string = "/sys/fs/cgroup"
 
 func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
-	eventControl, err := processCgroupSubsystemPath(info.conmonPID, cgroupv2, "event_control")
+	fmt.Fprintf(os.Stderr, "finding cgroup files for %d\n", info.conmonPID)
+	cgroupMemoryPath, err := processCgroupSubsystemPath(info.conmonPID, cgroupv2, "memory")
 	if err != nil {
 		return errors.Wrapf(err, "failed to get event_control file for pid %d", info.conmonPID)
 	}
 
-	oomControl, err := processCgroupSubsystemPath(info.conmonPID, cgroupv2, "oom_control")
-	if err != nil {
-		return errors.Wrapf(err, "failed to get oom_control file for pid %d", info.conmonPID)
-	}
+	fmt.Fprintf(os.Stderr, "found cgroup subsystem path %s for %d\n", cgroupMemoryPath, info.conmonPID)
+
+	oomControl := filepath.Join(cgroupMemoryPath, "memory.oom_control")
+	eventControl := filepath.Join(cgroupMemoryPath, "cgroup.event_control")
+
+	fmt.Fprintf(os.Stderr, "got %s %s\n", oomControl, eventControl)
 
 	efd, err := eventfd.New()
 	if err != nil {
@@ -40,19 +43,25 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 	defer cfd.Close()
 
 	// not closed here, closed when conmon is removed
+	// TODO FIXME if we error this should be closed
 	ofd, err := os.Open(oomControl)
 	if err != nil {
 		return errors.Wrapf(err, "failed to open file %s", oomControl)
 	}
 
 	content := fmt.Sprintf("%d %d", efd.Fd(), ofd.Fd())
+	fmt.Fprintf(os.Stderr, "writing content: %s to %s\n", content, cfd.Name())
 	if _, err := cfd.WriteString(content); err != nil {
 		return errors.Wrapf(err, "failed to write %s to %s", content, eventControl)
 	}
 
-	c.ep.Add(efd.Fd(), epoll.EPOLLIN, info.oomKillContainer)
+	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
+	if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN, info.oomKillContainer); err != nil {
+		return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
+	}
 
-	time.Sleep(100*time.Second)
+	info.eventControlFd = efd.Fd()
+	info.oomControl = ofd
 
 	return nil
 }
@@ -60,6 +69,7 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 // oomKillContainer does everything required to pretend as though the container OOM'd
 // this includes killing, setting its state, and writing that state to disk
 func (ci *conmonInfo) oomKillContainer(epoll.EpollEvent) {
+	fmt.Fprintf(os.Stderr, "oom killing container\n")
 	if err := ci.cmm.runtime.SignalContainer(ci.ctr, unix.SIGKILL); err != nil {
 		// in all likelihood, we'd get here because the container was killed or stopped after we made the last state check,
 		// but before we called $runtime kill. We should probably log it just to be sure.
@@ -72,12 +82,6 @@ func (ci *conmonInfo) oomKillContainer(epoll.EpollEvent) {
 	}
 }
 
-
-func (c *conmonmon) deregisterConmon(info *conmonInfo) {
-	c.ep.Del(info.eventControlFd)
-	info.oomControl.Close()
-}
-
 // TODO FIXME test with cgroup v1 and cgroup v2
 func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (string, error) {
 	cgroupFilePath := fmt.Sprintf("/proc/%d/cgroup", pid)
@@ -86,6 +90,7 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 		return "", err
 	}
 	defer cgroupFile.Close()
+	fmt.Fprintf(os.Stdin, "finding path off of %s\n", cgroupFilePath)
 
 	scanner := bufio.NewScanner(cgroupFile)
 	for scanner.Scan() {
@@ -94,7 +99,9 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 			return "", errors.Errorf("reading cgroup file %s resulted in invalid line %v", cgroupFilePath, lineFields)
 		}
 		if cgroupv2 {
-			return fmt.Sprintf("%s%s", cgroupRoot, lineFields[2]), nil
+			subsystemPath := filepath.Join(cgroupRoot, subsystem, lineFields[2])
+			fmt.Fprintf(os.Stdin, "found %s\n", subsystemPath)
+			return subsystemPath, nil
 		}
 		subsystems := strings.Split(lineFields[1], ",")
 		for _, subsystemInFile := range subsystems {
@@ -103,7 +110,9 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 				if idx := strings.Index(subsystemInFile, "="); idx > -1 {
 					subpathInFile = subsystemInFile[idx:]
 				}
-				return fmt.Sprintf("%s/%s%s", cgroupRoot, subpathInFile, lineFields[2]), nil
+				subsystemPath := filepath.Join(cgroupRoot, subsystem, subpathInFile, lineFields[2])
+				fmt.Fprintf(os.Stdin, "found %s\n", subsystemPath)
+				return subsystemPath, nil
 			}
 		}
 	}
@@ -111,4 +120,10 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 		return "", err
 	}
 	return "", errors.Errorf("unable to find subsystem path %s in file %s", cgroupFilePath, subsystem)
+}
+
+func (c *conmonmon) deregisterConmon(info *conmonInfo) {
+	fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
+	c.ep.Del(info.eventControlFd)
+	info.oomControl.Close()
 }

@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type conmonInfo struct {
 // It also starts the monitoring routine
 func (c *ContainerServer) newConmonmon(r *oci.Runtime) (*conmonmon, error) {
 	// create epoll
+	fmt.Fprintf(os.Stderr, "creating new epoll instance\n")
 	ep, err := epoll.EpollCreate(nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create epoll to listen for conmon OOMs")
@@ -85,6 +87,7 @@ func (c *conmonmon) MonitorConmon(ctr *oci.Container) error {
 		cmm: c,
 	}
 
+	fmt.Fprintf(os.Stderr, "registering conmon %d with epoll\n", conmonPID)
 	if err := c.registerConmon(ci, false); err != nil {
 		return errors.Wrapf(err, "failed to register conmon %d with epoll watcher", conmonPID)
 	}
@@ -106,9 +109,13 @@ func (c *conmonmon) StopMonitoringConmon(ctr *oci.Container) {
 	defer c.lock.Unlock()
 	// we can be idempotent here, because there are multiple ways a container can
 	// not be tracked anymore
-	if _, ok := c.conmons[ctr]; !ok {
+	ci, ok := c.conmons[ctr]
+	if !ok {
 		return
 	}
+
+	fmt.Fprintf(os.Stderr, "deregistering conmon %d with epoll\n", ci.conmonPID)
+	c.deregisterConmon(ci)
 
 	delete(c.conmons, ctr)
 }
