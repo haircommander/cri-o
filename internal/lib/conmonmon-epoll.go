@@ -58,9 +58,13 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 
 	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
 
-	if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN | epoll.EPOLLERR | epoll.EPOLLONESHOT, info.oomKillContainer); err != nil {
-		return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
-	}
+	go func() {
+		val, err := efd.ReadEvents()
+		fmt.Fprintf(os.Stderr, "%d: %v", val, err)
+	}()
+	//if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN | epoll.EPOLLERR | epoll.EPOLLONESHOT, info.oomKillContainer); err != nil {
+	//	return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
+	//}
 
 	info.eventFD = efd
 	info.oomControl = ofd
@@ -148,7 +152,7 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 
 func (c *conmonmon) deregisterConmon(info *conmonInfo) {
 	fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
-	c.ep.Del(info.eventFD.Fd())
+	//c.ep.Del(info.eventFD.Fd())
 	info.oomControl.Close()
 	info.eventFD.Close()
 }
