@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	epoll "github.com/mailru/easygo/netpoll"
-	"github.com/gxed/eventfd"
+	//"github.com/gxed/eventfd"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -17,60 +17,57 @@ import (
 
 var cgroupRoot string = "/sys/fs/cgroup"
 
-func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
-	fmt.Fprintf(os.Stderr, "finding cgroup files for %d\n", info.conmonPID)
-	cgroupMemoryPath, err := processCgroupSubsystemPath(info.conmonPID, cgroupv2, "memory")
-	if err != nil {
-		return errors.Wrapf(err, "failed to get event_control file for pid %d", info.conmonPID)
-	}
-
-	fmt.Fprintf(os.Stderr, "found cgroup subsystem path %s for %d\n", cgroupMemoryPath, info.conmonPID)
-
-	oomControl := filepath.Join(cgroupMemoryPath, "memory.oom_control")
-	eventControl := filepath.Join(cgroupMemoryPath, "cgroup.event_control")
-
-	fmt.Fprintf(os.Stderr, "got %s %s\n", oomControl, eventControl)
-
-	// not closed here, closed when conmon is removed
-	efd, err := eventfd.New()
-	if err != nil {
-		return errors.Wrapf(err, "failed to open event fd to listen for conmon OOMs")
-	}
-
-	cfd, err := os.OpenFile(eventControl, os.O_WRONLY, 0755)
-	if err != nil {
-		return errors.Wrapf(err, "failed to open file %s", eventControl)
-	}
-	defer cfd.Close()
-
-	// not closed here, closed when conmon is removed
-	// TODO FIXME if we error this should be closed
-	ofd, err := os.Open(oomControl)
-	if err != nil {
-		return errors.Wrapf(err, "failed to open file %s", oomControl)
-	}
-
-	content := fmt.Sprintf("%d %d", efd.Fd(), ofd.Fd())
-	fmt.Fprintf(os.Stderr, "writing content: %s to %s\n", content, cfd.Name())
-	if _, err := cfd.WriteString(content); err != nil {
-		return errors.Wrapf(err, "failed to write %s to %s", content, eventControl)
-	}
-
-	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
-
-	go func() {
-		val, err := efd.ReadEvents()
-		fmt.Fprintf(os.Stderr, "%d: %v", val, err)
-	}()
-	//if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN | epoll.EPOLLERR | epoll.EPOLLONESHOT, info.oomKillContainer); err != nil {
-	//	return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
-	//}
-
-	info.eventFD = efd
-	info.oomControl = ofd
-
-	return nil
-}
+//func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
+//	fmt.Fprintf(os.Stderr, "finding cgroup files for %d\n", info.conmonPID)
+//	cgroupMemoryPath, err := processCgroupSubsystemPath(info.conmonPID, cgroupv2, "memory")
+//	if err != nil {
+//		return errors.Wrapf(err, "failed to get event_control file for pid %d", info.conmonPID)
+//	}
+//
+//	fmt.Fprintf(os.Stderr, "found cgroup subsystem path %s for %d\n", cgroupMemoryPath, info.conmonPID)
+//
+//	oomControl := filepath.Join(cgroupMemoryPath, "memory.oom_control")
+//	eventControl := filepath.Join(cgroupMemoryPath, "cgroup.event_control")
+//
+//	fmt.Fprintf(os.Stderr, "got %s %s\n", oomControl, eventControl)
+//
+//	// not closed here, closed when conmon is removed
+//	efd, err := eventfd.New()
+//	if err != nil {
+//		return errors.Wrapf(err, "failed to open event fd to listen for conmon OOMs")
+//	}
+//
+//	cfd, err := os.OpenFile(eventControl, os.O_WRONLY, 0755)
+//	if err != nil {
+//		return errors.Wrapf(err, "failed to open file %s", eventControl)
+//	}
+//	defer cfd.Close()
+//
+//	// not closed here, closed when conmon is removed
+//	// TODO FIXME if we error this should be closed
+//	ofd, err := os.Open(oomControl)
+//	if err != nil {
+//		return errors.Wrapf(err, "failed to open file %s", oomControl)
+//	}
+//
+//	content := fmt.Sprintf("%d %d", efd.Fd(), ofd.Fd())
+//	fmt.Fprintf(os.Stderr, "writing content: %s to %s\n", content, cfd.Name())
+//	if _, err := cfd.WriteString(content); err != nil {
+//		return errors.Wrapf(err, "failed to write %s to %s", content, eventControl)
+//	}
+//
+//	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
+//
+//	go func() {
+//		val, err := efd.ReadEvents()
+//		fmt.Fprintf(os.Stderr, "%d: %v", val, err)
+//	}()
+//
+//	info.eventFD = efd
+//	info.oomControl = ofd
+//
+//	return nil
+//}
 
 // oomKillContainer does everything required to pretend as though the container OOM'd
 // this includes killing, setting its state, and writing that state to disk
@@ -151,8 +148,7 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 }
 
 func (c *conmonmon) deregisterConmon(info *conmonInfo) {
-	fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
-	//c.ep.Del(info.eventFD.Fd())
-	info.oomControl.Close()
-	info.eventFD.Close()
+	//fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
+	//info.oomControl.Close()
+	//info.eventFD.Close()
 }
