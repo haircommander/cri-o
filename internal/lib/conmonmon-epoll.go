@@ -3,7 +3,6 @@ package lib
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
 	"strings"
 	"os"
 	"path/filepath"
@@ -58,9 +57,13 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 
 	fmt.Fprintf(os.Stderr, "adding %d to epoll\n", efd.Fd())
 
-	if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN | epoll.EPOLLERR | epoll.EPOLLONESHOT, info.oomKillContainer); err != nil {
-		return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
-	}
+	go func() {
+		val, err := efd.ReadEvents()
+		fmt.Fprintf(os.Stderr, "%d: %v", val, err)
+	}()
+	//if err := c.ep.Add(efd.Fd(), epoll.EPOLLIN | epoll.EPOLLERR | epoll.EPOLLONESHOT, info.oomKillContainer); err != nil {
+	//	return errors.Wrapf(err, "failed to register %d with epoll", efd.Fd())
+	//}
 
 	info.eventFD = efd
 	info.oomControl = ofd
@@ -72,20 +75,6 @@ func (c *conmonmon) registerConmon(info *conmonInfo, cgroupv2 bool) error {
 // this includes killing, setting its state, and writing that state to disk
 func (ci *conmonInfo) oomKillContainer(e epoll.EpollEvent) {
 	fmt.Fprintf(os.Stderr, "oom killing container %v\n", e)
-
-    b, err := ioutil.ReadAll(ci.oomControl)
-    if err != nil {
-		logrus.Errorf("can't read file %s to check if oom happened: %v", ci.oomControl.Name(), err)
-		return
-    }
-
-	if !strings.Contains(string(b), "oom_kill 1") {
-		// TODO FIXME probably debug
-		logrus.Errorf("caught %v on control file, but no OOM happened %s", e, string(b))
-		return
-	}
-
-	fmt.Fprintf(os.Stderr, "found oom_kill 1\n")
 	if err := ci.cmm.runtime.SignalContainer(ci.ctr, unix.SIGKILL); err != nil {
 		// in all likelihood, we'd get here because the container was killed or stopped after we made the last state check,
 		// but before we called $runtime kill. We should probably log it just to be sure.
@@ -148,7 +137,7 @@ func processCgroupSubsystemPath(pid int, cgroupv2 bool, subsystem string) (strin
 
 func (c *conmonmon) deregisterConmon(info *conmonInfo) {
 	fmt.Fprintf(os.Stderr, "deregistering conmon %d\n", info.conmonPID)
-	c.ep.Del(info.eventFD.Fd())
+	//c.ep.Del(info.eventFD.Fd())
 	info.oomControl.Close()
 	info.eventFD.Close()
 }
