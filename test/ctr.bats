@@ -1284,7 +1284,6 @@ function wait_until_exit() {
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ "209715200" ]]
 
-
 	# we can only rely on these files being here if cgroup memory swap is enabled
 	# otherwise this test fails
 	if test -r "$CGROUP_MEM_SWAP_FILE" ; then
