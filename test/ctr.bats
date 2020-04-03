@@ -786,54 +786,6 @@ function teardown() {
 	[[ "$output" =~ "Attempt: 1" ]]
 }
 
-@test "ctr execsync conflicting with conmon flags parsing" {
-	start_crio
-	run crictl runp "$TESTDATA"/sandbox_config.json
-	echo "$output"
-	[ "$status" -eq 0 ]
-	pod_id="$output"
-	run crictl create "$pod_id" "$TESTDATA"/container_redis.json "$TESTDATA"/sandbox_config.json
-	echo "$output"
-	[ "$status" -eq 0 ]
-	ctr_id="$output"
-	run crictl start "$ctr_id"
-	echo "$output"
-	[ "$status" -eq 0 ]
-	run crictl exec --sync "$ctr_id" sh -c "echo hello world"
-	echo "$output"
-	[ "$status" -eq 0 ]
-	[[ "$output" == "hello world" ]]
-}
-
-@test "ctr execsync" {
-	start_crio
-	run crictl runp "$TESTDATA"/sandbox_config.json
-	echo "$output"
-	[ "$status" -eq 0 ]
-	pod_id="$output"
-	run crictl create "$pod_id" "$TESTDATA"/container_redis.json "$TESTDATA"/sandbox_config.json
-	echo "$output"
-	[ "$status" -eq 0 ]
-	ctr_id="$output"
-	run crictl start "$ctr_id"
-	echo "$output"
-	[ "$status" -eq 0 ]
-	run crictl exec --sync "$ctr_id" echo HELLO
-	echo "$output"
-	[ "$status" -eq 0 ]
-	[[ "$output" == "HELLO" ]]
-	run crictl exec --sync --timeout 1 "$ctr_id" sleep 3
-	echo "$output"
-	[[ "$output" =~ "command timed out" ]]
-	[ "$status" -ne 0 ]
-	run crictl stopp "$pod_id"
-	echo "$output"
-	[ "$status" -eq 0 ]
-	run crictl rmp "$pod_id"
-	echo "$output"
-	[ "$status" -eq 0 ]
-}
-
 @test "ctr device add" {
 	# In an user namespace we can only bind mount devices from the host, not mknod
 	# https://github.com/opencontainers/runc/blob/master/libcontainer/rootfs_linux.go#L480-L481
