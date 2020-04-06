@@ -165,8 +165,6 @@ var _ = t.Describe("SandboxManagedNamespaces", func() {
 
 			// Then
 			Expect(err).To(BeNil())
-			_, err = os.Stat(tmpDir)
-			Expect(os.IsNotExist(err)).To(Equal(true))
 		})
 	})
 	t.Describe("*NsJoin", func() {
