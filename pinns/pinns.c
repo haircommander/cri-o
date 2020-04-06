@@ -135,7 +135,7 @@ static int bind_ns(const char *pin_path, const char *filename, const char *ns_na
   // now, get the real path we want
   snprintf(bind_path, PATH_MAX - 1, "%s/%sns/%s", pin_path, ns_name, filename);
 
-  fd = open(bind_path, O_RDONLY | O_CREAT | O_EXCL, 0);
+  fd = open(bind_path, O_RDWR|O_CREAT|O_EXCL, 0666);
   if (fd < 0) {
     pwarn("Failed to create ns file");
     return -1;
@@ -143,7 +143,8 @@ static int bind_ns(const char *pin_path, const char *filename, const char *ns_na
   close(fd);
 
   snprintf(ns_path, PATH_MAX - 1, "/proc/self/ns/%s", ns_name);
-  if (mount(ns_path, bind_path, NULL, MS_BIND, NULL) < 0) {
+
+  if (mount(ns_path, bind_path, NULL, MS_BIND | MS_SHARED, NULL) < 0) {
     pwarnf("Failed to bind mount ns: %s", ns_path);
     return -1;
   }

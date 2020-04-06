@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/BurntSushi/toml"
 	conmonconfig "github.com/containers/conmon/runner/config"
@@ -752,8 +753,8 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 			return errors.Wrapf(err, "pinns validation")
 		}
 
-		if err := os.MkdirAll(c.NamespacesDir, 0755); err != nil {
-			return errors.Wrap(err, "invalid namespaces_dir")
+		if err := c.CreateNamespaceDirectories(); err != nil {
+			return errors.Wrap(err, "namespace dir creation")
 		}
 	}
 
@@ -802,6 +803,53 @@ func validateExecutablePath(executable, currentPath string) (string, error) {
 	}
 	logrus.Infof("using %s executable %q", executable, currentPath)
 	return currentPath, nil
+}
+
+// CreateNamespaceDirectories creates top level namespace directories underneath
+// NamespaceDir: netns, uts, ipcns. These three directories will be mounted correctly
+// so files within them will be considered namespaces
+func (c *RuntimeConfig) CreateNamespaceDirectories() error {
+	namespaces := []string{"netns", "utsns", "ipcns"}
+	if err := os.MkdirAll(c.NamespacesDir, 0755); err != nil {
+		return errors.Wrap(err, "invalid namespaces_dir")
+	}
+	for _, namespace := range namespaces {
+		path := filepath.Join(c.NamespacesDir, namespace)
+		if err := createNamespaceDirectory(path); err != nil {
+			return errors.Wrapf(err, "invalid %s", path)
+		}
+	}
+	return nil
+}
+
+// createNamespaceDirectory takes a path and creates it in a similar way `ip netns add` does
+// this code was heavily adopted from rkt [1] by suggestion of the containernetworking/plugins/ns [2] package
+// [1] https://github.com/rkt/rkt/blob/4080b1743e0c46fa1645f4de64f1b75a980d82a3/networking/podenv.go#L109
+// [2] https://github.com/containernetworking/plugins/blob/112288ecb2969242ec7dad22dedbfedb70cff8e2/pkg/ns/README.md
+func createNamespaceDirectory(directory string) error {
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return errors.Wrapf(err, "invalid directory %s", directory)
+	}
+	err := syscall.Mount("", directory, "none", syscall.MS_SHARED|syscall.MS_REC, "")
+	if err != nil {
+		// Fail unless we need to make the mount point
+		if err != syscall.EINVAL {
+			return errors.Wrapf(err, "mount --make-rshared %s failed", directory)
+		}
+
+		// Upgrade mountTarget to a mount point
+		err = syscall.Mount(directory, directory, "none", syscall.MS_BIND|syscall.MS_REC, "")
+		if err != nil {
+			return errors.Wrapf(err, "mount --rbind %s %s failed", directory, directory)
+		}
+
+		// Remount after the Upgrade
+		err = syscall.Mount("", directory, "none", syscall.MS_SHARED|syscall.MS_REC, "")
+		if err != nil {
+			return errors.Wrapf(err, "mount --make-rshared %s failed", directory)
+		}
+	}
+	return nil
 }
 
 // Validate is the main entry point for network configuration validation.
