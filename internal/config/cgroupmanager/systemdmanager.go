@@ -41,7 +41,7 @@ func (*Systemdv1Manager) GetContainerCgroupPath(sbParent, containerID string) st
 // GetSandboxCgroupPath takes the sandbox parent, and sandbox ID. It
 // returns the cgroup parent, cgroup path, and error.
 // it also checks there is enough memory in the given cgroup (4mb is needed for the runtime)
-func (*Systemdv1Manager) GetSandboxCgroupPath(sbParent, sbID string) (string, string, error) {
+func (*Systemdv1Manager) GetSandboxCgroupPath(sbParent, sbID string) (cgParent, cgPath string, err error) {
 	return getSandboxCgroupPathForSystemd(sbParent, sbID, cgroupMemorySubsystemMountPathV1, "memory.limit_in_bytes")
 }
 
@@ -82,11 +82,11 @@ func getContainerCgroupPath(sbParent, containerID string) string {
 // GetSandboxCgroupPath takes the sandbox parent, and sandbox ID. It
 // returns the cgroup parent, cgroup path, and error.
 // it also checks there is enough memory in the given cgroup (4mb is needed for the runtime)
-func (*Systemdv2Manager) GetSandboxCgroupPath(sbParent, sbID string) (string, string, error) {
+func (*Systemdv2Manager) GetSandboxCgroupPath(sbParent, sbID string) (cgParent, cgPath string, err error) {
 	return getSandboxCgroupPathForSystemd(sbParent, sbID, cgroupMemorySubsystemMountPathV2, "memory.max")
 }
 
-func getSandboxCgroupPathForSystemd(sbParent, sbID, memorySubsystemPath, memoryPath string) (string, string, error) {
+func getSandboxCgroupPathForSystemd(sbParent, sbID, memorySubsystemPath, memoryMaxFile string) (cgParent, cgPath string, err error) {
 	if sbParent == "" {
 		return "", "", nil
 	}
@@ -95,15 +95,15 @@ func getSandboxCgroupPathForSystemd(sbParent, sbID, memorySubsystemPath, memoryP
 		return "", "", fmt.Errorf("cri-o configured with systemd cgroup manager, but did not receive slice as parent: %s", sbParent)
 	}
 
-	cgroupParent := convertCgroupFsNameToSystemd(sbParent)
+	cgParent = convertCgroupFsNameToSystemd(sbParent)
 
-	if err := verifyCgroupHasEnoughMemory(cgroupParent, memorySubsystemPath, "memory.limit_in_bytes"); err != nil {
+	if err := verifyCgroupHasEnoughMemory(cgParent, memorySubsystemPath, memoryMaxFile); err != nil {
 		return "", "", err
 	}
 
-	cgPath := cgroupParent + ":" + scopePrefix + ":" + sbID
+	cgPath = cgParent + ":" + scopePrefix + ":" + sbID
 
-	return cgroupParent, cgPath, nil
+	return cgParent, cgPath, nil
 }
 
 func verifyCgroupHasEnoughMemory(cgroupParent, memorySubsystemPath, memoryMaxFilename string) error {
@@ -120,9 +120,8 @@ func verifyCgroupHasEnoughMemory(cgroupParent, memorySubsystemPath, memoryMaxFil
 		if os.IsNotExist(err) {
 			logrus.Warnf("Failed to find %s for slice: %q", memoryMaxFilename, cgroupParent)
 			return nil
-		} else {
-			return errors.Wrapf(err, "error reading %s file for slice %q", memoryMaxFilename, cgroupParent)
 		}
+		return errors.Wrapf(err, "error reading %s file for slice %q", memoryMaxFilename, cgroupParent)
 	}
 	// strip off the newline character and convert it to an int
 	strMemory := strings.TrimRight(string(fileData), "\n")
