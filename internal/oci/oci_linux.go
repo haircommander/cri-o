@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/containers/libpod/pkg/cgroups"
-	"github.com/cri-o/cri-o/internal/config/cgroupmanager"
+	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -154,7 +154,7 @@ func metricsToCtrStats(c *Container, m *cgroups.Metrics) *ContainerStats {
 // not parsable.
 func getTotalInactiveFile() (uint64, error) {
 	// no cgroupv2 support right now
-	if isV2 := cgroupmanager.CgroupIsV2(); isV2 {
+	if isV2 := node.CgroupIsV2(); isV2 {
 		return 0, nil
 	}
 

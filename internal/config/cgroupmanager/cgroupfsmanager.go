@@ -42,7 +42,7 @@ func (*CgroupfsManager) GetContainerCgroupPath(sbParent, containerID string) str
 
 // GetSandboxCgroupPath takes the sandbox parent, and sandbox ID. It
 // returns the cgroup parent, cgroup path, and error.
-func (*CgroupfsManager) GetSandboxCgroupPath(sbParent, sbID string) (string, string, error) {
+func (*CgroupfsManager) GetSandboxCgroupPath(sbParent, sbID string) (cgParent, cgPath string, err error) {
 	if strings.HasSuffix(path.Base(sbParent), ".slice") {
 		return "", "", fmt.Errorf("cri-o configured with cgroupfs cgroup manager, but received systemd slice as parent: %s", sbParent)
 	}

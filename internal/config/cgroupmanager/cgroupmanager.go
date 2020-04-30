@@ -3,6 +3,7 @@
 package cgroupmanager
 
 import (
+	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/pkg/errors"
 )
 
@@ -47,17 +48,16 @@ type CgroupManager interface {
 // New creates a new CgroupManager with defaults
 func New() CgroupManager {
 	// we can eat the error here because we control what the DefaultCgroupManager is
-	cm, _ := SetCgroupManager(DefaultCgroupManager)
+	cm, _ := SetCgroupManager(DefaultCgroupManager) // nolint: errcheck
 	return cm
 }
 
 // SetCgroupManager takes a string and branches on it to return
 // the type of cgroup manager configured
 func SetCgroupManager(cgroupManager string) (CgroupManager, error) {
-	initializeCgroups()
 	switch cgroupManager {
 	case SystemdCgroupManager:
-		if CgroupIsV2() {
+		if node.CgroupIsV2() {
 			return new(Systemdv2Manager), nil
 		}
 		return new(Systemdv1Manager), nil

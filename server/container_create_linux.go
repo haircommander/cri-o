@@ -18,6 +18,7 @@ import (
 	createconfig "github.com/containers/libpod/pkg/spec"
 	"github.com/containers/storage/pkg/mount"
 	"github.com/cri-o/cri-o/internal/config/cgroupmanager"
+	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
@@ -464,7 +465,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 				}
 
 				specgen.SetLinuxResourcesMemoryLimit(memoryLimit)
-				if cgroupmanager.CgroupHasMemorySwap() {
+				if node.CgroupHasMemorySwap() {
 					specgen.SetLinuxResourcesMemorySwap(memoryLimit)
 				}
 			}
@@ -474,7 +475,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 			specgen.SetLinuxResourcesCPUMems(resources.GetCpusetMems())
 
 			// If the kernel has no support for hugetlb, silently ignore the limits
-			if cgroupmanager.CgroupHasHugetlb() {
+			if node.CgroupHasHugetlb() {
 				hugepageLimits := resources.GetHugepageLimits()
 				for _, limit := range hugepageLimits {
 					specgen.AddLinuxResourcesHugepageLimit(limit.PageSize, limit.Limit)
@@ -636,7 +637,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}
 
 	// When running on cgroupv2, automatically add a cgroup namespace for not privileged containers.
-	if !privileged && cgroupmanager.CgroupIsV2() {
+	if !privileged && node.CgroupIsV2() {
 		if err := specgen.AddOrReplaceLinuxNamespace(string(rspec.CgroupNamespace), ""); err != nil {
 			return nil, err
 		}
@@ -859,7 +860,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}
 
 	// Set up pids limit if pids cgroup is mounted
-	if cgroupmanager.CgroupHasPid() {
+	if node.CgroupHasPid() {
 		specgen.SetLinuxResourcesPidsLimit(s.config.PidsLimit)
 	}
 
@@ -1157,7 +1158,7 @@ func setupSystemd(mounts []rspec.Mount, g generate.Generator) {
 		g.AddMount(tmpfsMnt)
 	}
 
-	if cgroupmanager.CgroupIsV2() {
+	if node.CgroupIsV2() {
 		g.RemoveMount("/sys/fs/cgroup")
 
 		systemdMnt := rspec.Mount{

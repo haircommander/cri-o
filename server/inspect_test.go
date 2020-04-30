@@ -19,7 +19,7 @@ func TestGetInfo(t *testing.T) {
 	}
 	c.RootConfig.Storage = "afoobarstorage"
 	c.RootConfig.Root = "afoobarroot"
-	c.RuntimeConfig.CgroupManager = "systemd"
+	c.RuntimeConfig.CgroupManagerName = "systemd"
 	c.APIConfig = config.APIConfig{}
 	s := &Server{config: *c}
 	ci := s.getInfo()

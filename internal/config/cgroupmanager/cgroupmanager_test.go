@@ -6,6 +6,12 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const (
+	sbID                 = "sbid"
+	cID                  = "cid"
+	genericSandboxParent = "sb-parent"
+)
+
 // The actual test suite
 var _ = t.Describe("Config", func() {
 	var sut cgroupmanager.CgroupManager
@@ -122,30 +128,26 @@ var _ = t.Describe("Config", func() {
 		t.Describe("GetContainerCgroupPath", func() {
 			It("should contain default /crio", func() {
 				// Given
-				cid := "cid"
 				// When
-				cgroupPath := sut.GetContainerCgroupPath("", cid)
+				cgroupPath := sut.GetContainerCgroupPath("", cID)
 
 				// Then
-				Expect(cgroupPath).To(ContainSubstring(cid))
+				Expect(cgroupPath).To(ContainSubstring(cID))
 				Expect(cgroupPath).To(ContainSubstring("/crio"))
 			})
 			It("can override sandbox parent", func() {
 				// Given
-				cid := "cid"
-				sbParent := "sandbox-parent"
 				// When
-				cgroupPath := sut.GetContainerCgroupPath(sbParent, cid)
+				cgroupPath := sut.GetContainerCgroupPath(genericSandboxParent, cID)
 
 				// Then
-				Expect(cgroupPath).To(ContainSubstring(cid))
-				Expect(cgroupPath).To(ContainSubstring(sbParent))
+				Expect(cgroupPath).To(ContainSubstring(cID))
+				Expect(cgroupPath).To(ContainSubstring(genericSandboxParent))
 			})
 		})
 		t.Describe("GetSandboxCgroupPath", func() {
 			It("should fail if sandbox parent has .slice", func() {
 				// Given
-				sbID := "sbid"
 				sbParent := "sandbox-parent.slice"
 				// When
 				cgParent, cgPath, err := sut.GetSandboxCgroupPath(sbParent, sbID)
@@ -157,14 +159,12 @@ var _ = t.Describe("Config", func() {
 			})
 			It("can override sandbox parent", func() {
 				// Given
-				sbID := "sbid"
-				sbParent := "sandbox-parent"
 				// When
-				cgParent, cgPath, err := sut.GetSandboxCgroupPath(sbParent, sbID)
+				cgParent, cgPath, err := sut.GetSandboxCgroupPath(genericSandboxParent, sbID)
 
 				// Then
-				Expect(cgParent).To(Equal(sbParent))
-				Expect(cgPath).To(ContainSubstring(sbParent))
+				Expect(cgParent).To(Equal(genericSandboxParent))
+				Expect(cgPath).To(ContainSubstring(genericSandboxParent))
 				Expect(cgPath).To(ContainSubstring(sbID))
 				Expect(err).To(BeNil())
 			})
@@ -193,30 +193,26 @@ func sharedSystemdManagerTests(sut cgroupmanager.CgroupManager) {
 	t.Describe("GetContainerCgroupPath", func() {
 		It("should contain default system.slice", func() {
 			// Given
-			cid := "cid"
 			// When
-			cgroupPath := sut.GetContainerCgroupPath("", cid)
+			cgroupPath := sut.GetContainerCgroupPath("", cID)
 
 			// Then
-			Expect(cgroupPath).To(ContainSubstring(cid))
+			Expect(cgroupPath).To(ContainSubstring(cID))
 			Expect(cgroupPath).To(ContainSubstring("system.slice"))
 		})
 		It("can override sandbox parent", func() {
 			// Given
-			cid := "cid"
-			sbParent := "sandbox-parent"
 			// When
-			cgroupPath := sut.GetContainerCgroupPath(sbParent, cid)
+			cgroupPath := sut.GetContainerCgroupPath(genericSandboxParent, cID)
 
 			// Then
-			Expect(cgroupPath).To(ContainSubstring(cid))
-			Expect(cgroupPath).To(ContainSubstring(sbParent))
+			Expect(cgroupPath).To(ContainSubstring(cID))
+			Expect(cgroupPath).To(ContainSubstring(genericSandboxParent))
 		})
 	})
 	t.Describe("GetSandboxCgroupPath", func() {
 		It("should fail when parent too short", func() {
 			// Given
-			sbID := "sbid"
 			sbParent := "slice"
 			// When
 			cgParent, cgPath, err := sut.GetSandboxCgroupPath(sbParent, sbID)
@@ -228,7 +224,6 @@ func sharedSystemdManagerTests(sut cgroupmanager.CgroupManager) {
 		})
 		It("should fail when parent not slice", func() {
 			// Given
-			sbID := "sbid"
 			sbParent := "systemd.invalid"
 			// When
 			cgParent, cgPath, err := sut.GetSandboxCgroupPath(sbParent, sbID)
