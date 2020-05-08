@@ -425,10 +425,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		specgen.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
 	}
 
-	if privileged {
-		setOCIBindMountsPrivileged(&specgen)
-	}
-
 	// Set hostname and add env for hostname
 	specgen.SetHostname(sb.Hostname())
 	specgen.AddProcessEnv("HOSTNAME", sb.Hostname())
@@ -487,11 +483,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		}
 	}()
 	specgen.AddAnnotation(annotations.MountPoint, mountPoint)
-
-	containerVolumes, err := s.configureGeneratorForMounts(ctx, specgen, containerConfig, sandboxConfig, sb, privileged, &containerInfo, mountLabel, mountPoint, processArgs)
-	if err != nil {
-		return nil, err
-	}
 
 	if containerImageConfig.Config.StopSignal != "" {
 		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
@@ -576,6 +567,11 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 		makeOCIConfigurationRootless(&specgen)
 	}
 
+	containerVolumes, err := s.configureGeneratorMounts(ctx, specgen, containerConfig, sandboxConfig, sb, privileged, &containerInfo, mountLabel, mountPoint, processArgs)
+	if err != nil {
+		return nil, err
+	}
+
 	saveOptions := generate.ExportOptions{}
 	if err := specgen.SaveToFile(filepath.Join(containerInfo.Dir, "config.json"), saveOptions); err != nil {
 		return nil, err
@@ -587,6 +583,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	container.SetSpec(specgen.Config)
 	container.SetMountPoint(mountPoint)
 	container.SetSeccompProfilePath(spp)
+
 
 	for _, cv := range containerVolumes {
 		container.AddVolume(cv)
