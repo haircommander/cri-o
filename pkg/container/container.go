@@ -36,6 +36,7 @@ type container struct {
 	config *pb.ContainerConfig
 	id     string
 	name   string
+	privileged bool
 }
 
 // New creates a new, empty Sandbox instance

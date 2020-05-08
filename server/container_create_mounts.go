@@ -13,7 +13,6 @@ import (
 	"github.com/containers/libpod/pkg/annotations"
 	"github.com/containers/libpod/pkg/rootless"
 	"github.com/containers/storage/pkg/mount"
-	"github.com/cri-o/cri-o/internal/config/cgroupmanager"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
@@ -24,7 +23,7 @@ import (
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
-func (s *Server) configureGeneratorForMounts(
+func (s *Server) configureGeneratorMounts(
 	ctx context.Context,
 	specgen generate.Generator,
 	containerConfig *pb.ContainerConfig,
@@ -34,6 +33,8 @@ func (s *Server) configureGeneratorForMounts(
 	containerInfo *storage.ContainerInfo,
 	mountLabel, mountPoint string,
 	processArgs []string) ([]oci.ContainerVolume, error) {
+
+	// # 1
 	if s.config.ReadOnly {
 		// tmpcopyup is a runc extension and is not part of the OCI spec.
 		// WORK ON: Use "overlay" mounts as an alternative to tmpfs with tmpcopyup
@@ -57,83 +58,57 @@ func (s *Server) configureGeneratorForMounts(
 		}
 	}
 
-	// If the sandbox is configured to run in the host network, do not create a new network namespace
-	if sb.HostNetwork() {
-		if err := specgen.RemoveLinuxNamespace(string(rspec.NetworkNamespace)); err != nil {
-			return nil, err
-		}
 
-		if !isInCRIMounts("/sys", containerConfig.GetMounts()) {
-			specgen.RemoveMount("/sys")
-			specgen.RemoveMount("/sys/fs/cgroup")
-			sysMnt := rspec.Mount{
-				Destination: "/sys",
-				Type:        "sysfs",
-				Source:      "sysfs",
-				Options:     []string{"nosuid", "noexec", "nodev", "ro"},
-			}
-			specgen.AddMount(sysMnt)
-		}
+	// # 2
+	containerVolumes, ociMountsFromConfig, err := addOCIBindMounts(ctx, mountLabel, containerConfig, &specgen, s.config.RuntimeConfig.BindMountPrefix)
+	if err != nil {
+		return nil, err
 	}
 
-	if privileged {
-		specgen.RemoveMount("/sys")
-		specgen.RemoveMount("/sys/fs/cgroup")
-
-		sysMnt := rspec.Mount{
-			Destination: "/sys",
-			Type:        "sysfs",
-			Source:      "sysfs",
-			Options:     []string{"nosuid", "noexec", "nodev", "rw"},
-		}
-		specgen.AddMount(sysMnt)
-
-		cgroupMnt := rspec.Mount{
-			Destination: "/sys/fs/cgroup",
-			Type:        "cgroup",
-			Source:      "cgroup",
-			Options:     []string{"nosuid", "noexec", "nodev", "rw", "relatime"},
-		}
-		specgen.AddMount(cgroupMnt)
+	containerIsInit := false
+	// TODO FIXME duplicate statement
+	if strings.Contains(processArgs[0], "/sbin/init") || (filepath.Base(processArgs[0]) == "systemd") {
+		setupSystemd(specgen.Mounts(), specgen)
+		containerIsInit = true
 	}
 
+	configureGeneratorMountsForCgroups(specgen, sb.HostNetwork(), privileged, containerIsInit)
+
+	// # 6
 	// Remove the default /dev/shm mount to ensure we overwrite it
 	specgen.RemoveMount("/dev/shm")
 
-	// TODO FIXME duplicate statement
-	if strings.Contains(processArgs[0], "/sbin/init") || (filepath.Base(processArgs[0]) == cgroupmanager.SystemdCgroupManager) {
-		setupSystemd(specgen.Mounts(), specgen)
-	}
-
-	shmMnt := rspec.Mount{
+	mnt := rspec.Mount{
 		Type:        "bind",
 		Source:      sb.ShmPath(),
 		Destination: "/dev/shm",
 		Options:     []string{"rw", "bind"},
 	}
 	// bind mount the pod shm
-	specgen.AddMount(shmMnt)
+	specgen.AddMount(mnt)
 
 	readOnlyRootfs := s.configureGeneratorForReadOnly(specgen, containerConfig)
 	options := []string{"rw"}
 	if readOnlyRootfs {
 		options = []string{"ro"}
 	}
+	// # 7
 	if sb.ResolvPath() != "" {
 		if err := securityLabel(sb.ResolvPath(), mountLabel, false); err != nil {
 			return nil, err
 		}
 
-		resolvMnt := rspec.Mount{
+		mnt = rspec.Mount{
 			Type:        "bind",
 			Source:      sb.ResolvPath(),
 			Destination: "/etc/resolv.conf",
 			Options:     []string{"bind", "nodev", "nosuid", "noexec"},
 		}
 		// bind mount the pod resolver file
-		specgen.AddMount(resolvMnt)
+		specgen.AddMount(mnt)
 	}
 
+	// # 8
 	if sb.HostnamePath() != "" {
 		if err := securityLabel(sb.HostnamePath(), mountLabel, false); err != nil {
 			return nil, err
@@ -148,6 +123,7 @@ func (s *Server) configureGeneratorForMounts(
 		specgen.AddMount(mnt)
 	}
 
+	// # 8
 	if !isInCRIMounts("/etc/hosts", containerConfig.GetMounts()) && hostNetwork(containerConfig) {
 		// Only bind mount for host netns and when CRI does not give us any hosts file
 		mnt = rspec.Mount{
@@ -159,6 +135,19 @@ func (s *Server) configureGeneratorForMounts(
 		specgen.AddMount(mnt)
 	}
 
+	// # 9
+	if privileged {
+		setOCIBindMountsPrivileged(&specgen)
+	}
+
+	// # 10
+	// Add image volumes
+	volumeMounts, err := addImageVolumes(ctx, mountPoint, s, containerInfo, mountLabel, &specgen)
+	if err != nil {
+		return nil, err
+	}
+
+	// # 11
 	var secretMounts []rspec.Mount
 	if len(s.config.DefaultMounts) > 0 {
 		// This option has been deprecated, once it is removed in the later versions, delete the server/secrets.go file as well
@@ -176,18 +165,6 @@ func (s *Server) configureGeneratorForMounts(
 	}
 	// Add secrets from the default and override mounts.conf files
 	secretMounts = append(secretMounts, secrets.SecretMounts(mountLabel, containerInfo.RunDir, s.config.DefaultMountsFile, rootless.IsRootless(), disableFips)...)
-
-	// Add image volumes
-	volumeMounts, err := addImageVolumes(ctx, mountPoint, s, containerInfo, mountLabel, &specgen)
-	if err != nil {
-		return nil, err
-	}
-
-	// AddMount
-	containerVolumes, ociMountsFromConfig, err := addOCIBindMounts(ctx, mountLabel, containerConfig, &specgen, s.config.RuntimeConfig.BindMountPrefix)
-	if err != nil {
-		return nil, err
-	}
 
 	volumesJSON, err := json.Marshal(containerVolumes)
 	if err != nil {
@@ -213,6 +190,51 @@ func (s *Server) configureGeneratorForMounts(
 	}
 
 	return containerVolumes, nil
+}
+
+func configureGeneratorMountsForCgroups(specgen generate.Generator, hostNetwork, privileged, containerIsInit bool) {
+	// unconditionally add cgroup mount, even if sys isn't mounted
+	cgroupOpts := []string{"nosuid", "noexec", "nodev", "relatime", "ro"}
+	sysOpts := make([]string, 0)
+
+	// # 3
+	// If the sandbox is configured to run in the host network, do not create a new network namespace
+	if hostNetwork {
+		sysOpts = []string{"nosuid", "noexec", "nodev", "ro"}
+	}
+
+	// # 4
+	if privileged {
+		cgroupOpts = []string{"nosuid", "noexec", "nodev", "rw", "relatime"}
+		sysOpts = []string{"nosuid", "noexec", "nodev", "rw"}
+	}
+
+
+	// # 5
+	// It also expects to be able to write to /sys/fs/cgroup/systemd
+	if containerIsInit && node.CgroupIsV2() {
+		cgroupOpts = []string{"private", "rw"}
+	}
+
+	if len(sysOpts) != 0 {
+		specgen.RemoveMount("/sys")
+		m := rspec.Mount{
+			Destination: "/sys",
+			Type:        "sysfs",
+			Source:      "sysfs",
+			Options:     sysOpts,
+		}
+		specgen.AddMount(m)
+	}
+
+	specgen.RemoveMount("/sys/fs/cgroup")
+	m := rspec.Mount{
+		Destination: "/sys/fs/cgroup",
+		Type:        "cgroup",
+		Source:      "cgroup",
+		Options:     cgroupOpts,
+	}
+	specgen.AddMount(m)
 }
 
 func setOCIBindMountsPrivileged(g *generate.Generator) {
@@ -358,17 +380,6 @@ func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *p
 		})
 	}
 
-	// unconditionally add cgroup mount, even if sys isn't mounted
-	if !mountSys {
-		m := rspec.Mount{
-			Destination: "/sys/fs/cgroup",
-			Type:        "cgroup",
-			Source:      "cgroup",
-			Options:     []string{"nosuid", "noexec", "nodev", "relatime", "ro"},
-		}
-		specgen.AddMount(m)
-	}
-
 	return volumes, ociMountsFromConfig, nil
 }
 
@@ -383,7 +394,6 @@ func mountExists(specMounts []rspec.Mount, dest string) bool {
 }
 
 // systemd expects to have /run, /run/lock and /tmp on tmpfs
-// It also expects to be able to write to /sys/fs/cgroup/systemd and /var/log/journal
 func setupSystemd(mounts []rspec.Mount, g generate.Generator) {
 	options := []string{"rw", "rprivate", "noexec", "nosuid", "nodev"}
 	for _, dest := range []string{"/run", "/run/lock"} {
@@ -410,18 +420,7 @@ func setupSystemd(mounts []rspec.Mount, g generate.Generator) {
 		}
 		g.AddMount(tmpfsMnt)
 	}
-
-	if node.CgroupIsV2() {
-		g.RemoveMount("/sys/fs/cgroup")
-
-		systemdMnt := rspec.Mount{
-			Destination: "/sys/fs/cgroup",
-			Type:        "cgroup",
-			Source:      "cgroup",
-			Options:     []string{"private", "rw"},
-		}
-		g.AddMount(systemdMnt)
-	} else {
+	if !node.CgroupIsV2() {
 		systemdMnt := rspec.Mount{
 			Destination: "/sys/fs/cgroup/systemd",
 			Type:        "bind",

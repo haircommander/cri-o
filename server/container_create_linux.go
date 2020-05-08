@@ -12,16 +12,9 @@ import (
 	"time"
 
 	"github.com/containers/libpod/pkg/annotations"
-<<<<<<< HEAD
-	"github.com/containers/libpod/pkg/rootless"
 	selinux "github.com/containers/libpod/pkg/selinux"
 	createconfig "github.com/containers/libpod/pkg/spec"
-	"github.com/containers/storage/pkg/mount"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
-=======
-	createconfig "github.com/containers/libpod/pkg/spec"
-	"github.com/cri-o/cri-o/internal/config/cgroupmanager"
->>>>>>> 2bbea44c2... container create: split up handling of devices and mounts
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
@@ -48,126 +41,6 @@ type configDevice struct {
 	Resource rspec.LinuxDeviceCgroup
 }
 
-<<<<<<< HEAD
-func addDevicesPlatform(ctx context.Context, sb *sandbox.Sandbox, containerConfig *pb.ContainerConfig, privilegedWithoutHostDevices bool, specgen *generate.Generator) error {
-	sp := specgen.Config
-	if containerConfig.GetLinux().GetSecurityContext() != nil && containerConfig.GetLinux().GetSecurityContext().GetPrivileged() && !privilegedWithoutHostDevices {
-		hostDevices, err := devices.HostDevices()
-		if err != nil {
-			return err
-		}
-		for _, hostDevice := range hostDevices {
-			rd := rspec.LinuxDevice{
-				Path:  hostDevice.Path,
-				Type:  string(hostDevice.Type),
-				Major: hostDevice.Major,
-				Minor: hostDevice.Minor,
-				UID:   &hostDevice.Uid,
-				GID:   &hostDevice.Gid,
-			}
-			if hostDevice.Major == 0 && hostDevice.Minor == 0 {
-				// Invalid device, most likely a symbolic link, skip it.
-				continue
-			}
-			specgen.AddDevice(rd)
-		}
-		sp.Linux.Resources.Devices = []rspec.LinuxDeviceCgroup{
-			{
-				Allow:  true,
-				Access: "rwm",
-			},
-		}
-	}
-
-	for _, device := range containerConfig.GetDevices() {
-		// pin the device to avoid using `device` within the range scope as
-		// wrong function literal
-		device := device
-
-		// If we are privileged, we have access to devices on the host.
-		// If the requested container path already exists on the host, the container won't see the expected host path.
-		// Therefore, we must error out if the container path already exists
-		privileged := containerConfig.GetLinux().GetSecurityContext() != nil && containerConfig.GetLinux().GetSecurityContext().GetPrivileged()
-		if privileged && device.ContainerPath != device.HostPath {
-			// we expect this to not exist
-			_, err := os.Stat(device.ContainerPath)
-			if err == nil {
-				return errors.Errorf("privileged container was configured with a device container path that already exists on the host.")
-			}
-			if !os.IsNotExist(err) {
-				return errors.Wrap(err, "error checking if container path exists on host")
-			}
-		}
-
-		path, err := resolveSymbolicLink(device.HostPath, "/")
-		if err != nil {
-			return err
-		}
-		dev, err := devices.DeviceFromPath(path, device.Permissions)
-		// if there was no error, return the device
-		if err == nil {
-			rd := rspec.LinuxDevice{
-				Path:  device.ContainerPath,
-				Type:  string(dev.Type),
-				Major: dev.Major,
-				Minor: dev.Minor,
-				UID:   &dev.Uid,
-				GID:   &dev.Gid,
-			}
-			specgen.AddDevice(rd)
-			sp.Linux.Resources.Devices = append(sp.Linux.Resources.Devices, rspec.LinuxDeviceCgroup{
-				Allow:  true,
-				Type:   string(dev.Type),
-				Major:  &dev.Major,
-				Minor:  &dev.Minor,
-				Access: dev.Permissions,
-			})
-			continue
-		}
-		// if the device is not a device node
-		// try to see if it's a directory holding many devices
-		if err == devices.ErrNotADevice {
-			// check if it is a directory
-			if e := utils.IsDirectory(path); e == nil {
-				// mount the internal devices recursively
-				// nolint: errcheck
-				filepath.Walk(path, func(dpath string, f os.FileInfo, e error) error {
-					if e != nil {
-						log.Debugf(ctx, "addDevice walk: %v", e)
-					}
-					childDevice, e := devices.DeviceFromPath(dpath, device.Permissions)
-					if e != nil {
-						// ignore the device
-						return nil
-					}
-					cPath := strings.Replace(dpath, path, device.ContainerPath, 1)
-					rd := rspec.LinuxDevice{
-						Path:  cPath,
-						Type:  string(childDevice.Type),
-						Major: childDevice.Major,
-						Minor: childDevice.Minor,
-						UID:   &childDevice.Uid,
-						GID:   &childDevice.Gid,
-					}
-					specgen.AddDevice(rd)
-					sp.Linux.Resources.Devices = append(sp.Linux.Resources.Devices, rspec.LinuxDeviceCgroup{
-						Allow:  true,
-						Type:   string(childDevice.Type),
-						Major:  &childDevice.Major,
-						Minor:  &childDevice.Minor,
-						Access: childDevice.Permissions,
-					})
-
-					return nil
-				})
-			}
-		}
-	}
-	return nil
-}
-
-=======
->>>>>>> 2bbea44c2... container create: split up handling of devices and mounts
 // createContainerPlatform performs platform dependent intermediate steps before calling the container's oci.Runtime().CreateContainer()
 func (s *Server) createContainerPlatform(container *oci.Container, cgroupParent string) error {
 	if s.defaultIDMappings != nil && !s.defaultIDMappings.Empty() {
@@ -621,7 +494,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}()
 	specgen.AddAnnotation(annotations.MountPoint, mountPoint)
 
-	containerVolumes, err := s.configureGeneratorForMounts(ctx, specgen, containerConfig, sandboxConfig, sb, privileged, &containerInfo, mountLabel, mountPoint, processArgs)
+	containerVolumes, err := s.configureGeneratorMounts(ctx, specgen, containerConfig, sandboxConfig, sb, privileged, &containerInfo, mountLabel, mountPoint, processArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -733,7 +606,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 
 func addDevicesPlatform(ctx context.Context, sb *sandbox.Sandbox, containerConfig *pb.ContainerConfig, privilegedWithoutHostDevices bool, specgen *generate.Generator) error {
 	sp := specgen.Config
-	if containerConfig.GetLinux().GetSecurityContext().GetPrivileged() && !privilegedWithoutHostDevices {
+	if containerConfig.GetLinux().GetSecurityContext() != nil && containerConfig.GetLinux().GetSecurityContext().GetPrivileged() && !privilegedWithoutHostDevices {
 		hostDevices, err := devices.HostDevices()
 		if err != nil {
 			return err
