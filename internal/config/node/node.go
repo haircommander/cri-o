@@ -3,9 +3,19 @@
 package node
 
 import (
+	"os"
+	"sync"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+var (
+	_hasFuseOnce sync.Once
+	_hasFuse     bool
+	_hasFuseErr  error
+)
+
 
 // ValidateConfig initializes and validates all of the singleton variables
 // that store the node's configuration.
@@ -43,6 +53,12 @@ func ValidateConfig() error {
 			err:         &_cgroupHasMemorySwapErr,
 			fatal:       false,
 		},
+		{
+			name:        "fuse device",
+			initializer: NodeHasFuse,
+			err:         &_hasFuseErr,
+			fatal:       false,
+		},
 	}
 	for _, i := range toInit {
 		i.initializer()
@@ -55,4 +71,19 @@ func ValidateConfig() error {
 		}
 	}
 	return nil
+}
+
+// NodeHasFuse returns whether modprobe fuse was run on the node
+func NodeHasFuse() bool {
+	_hasFuseOnce.Do(func() {
+		if _, err := os.Stat("/dev/fuse"); err != nil {
+			if os.IsNotExist(err) {
+				return
+			}
+			_hasFuseErr = errors.Wrap(err, "stat /dev/fuse")
+			return
+		}
+		_hasFuse = true
+	})
+	return _hasFuse
 }
