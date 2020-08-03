@@ -496,7 +496,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	// Note: the requirement here is that the name used for the runtime class has "kata" in it
 	// or the runtime_type is set to "vm"
 	if runtimeType == libconfig.RuntimeTypeVM || strings.Contains(strings.ToLower(runtimeHandler), "kata") {
-		processLabel, err = selinux.SELinuxKVMLabel(processLabel)
+		processLabel, err = selinux.KVMLabel(processLabel)
 		if err != nil {
 			return nil, err
 		}

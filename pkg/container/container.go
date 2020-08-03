@@ -8,6 +8,7 @@ import (
 
 	"github.com/containers/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/utils"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -61,7 +62,7 @@ type Container interface {
 
 	// SelinuxLabel returns the container's SelinuxLabel
 	// it takes the sandbox's label, which it falls back upon
-	SelinuxLabel(string) ([]string, error)
+	SelinuxLabel(string, bool) ([]string, error)
 }
 
 // container is the hidden default type behind the Container interface
@@ -265,7 +266,7 @@ func (c *container) ReadOnly(serverIsReadOnly bool) bool {
 
 // SelinuxLabel returns the container's SelinuxLabel
 // it takes the sandbox's label, which it falls back upon
-func (c *container) SelinuxLabel(sboxLabel string) ([]string, error) {
+func (c *container) SelinuxLabel(sboxLabel string, roLabel bool) ([]string, error) {
 	selinuxConfig := c.config.GetLinux().GetSecurityContext().GetSelinuxOptions()
 	if selinuxConfig != nil {
 		return utils.GetLabelOptions(selinuxConfig), nil
@@ -274,5 +275,10 @@ func (c *container) SelinuxLabel(sboxLabel string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	//if roLabel {
+	//	labelOptions = append(labelOptions, "filetype="+selinux.ROFileLabel())
+	//}
+
 	return labelOptions, nil
 }

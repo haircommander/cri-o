@@ -1,11 +1,11 @@
-package util
+package selinux
 
 import (
 	"github.com/opencontainers/selinux/go-selinux"
 )
 
-// SELinuxKVMLabel returns labels for running kvm isolated containers
-func SELinuxKVMLabel(cLabel string) (string, error) {
+// KVMLabel returns labels for running kvm isolated containers
+func KVMLabel(cLabel string) (string, error) {
 	if cLabel == "" {
 		// selinux is disabled
 		return "", nil
@@ -15,13 +15,24 @@ func SELinuxKVMLabel(cLabel string) (string, error) {
 	return swapSELinuxLabel(cLabel, processLabel)
 }
 
-// SELinuxInitLabel returns labels for running systemd based containers
-func SELinuxInitLabel(cLabel string) (string, error) {
+// InitLabel returns labels for running systemd based containers
+func InitLabel(cLabel string) (string, error) {
 	if cLabel == "" {
 		// selinux is disabled
 		return "", nil
 	}
 	processLabel, _ := selinux.InitContainerLabels()
+	selinux.ReleaseLabel(processLabel)
+	return swapSELinuxLabel(cLabel, processLabel)
+}
+
+// ROLabel returns labels for running containers read-only
+func ROLabel(cLabel string) (string, error) {
+	if cLabel == "" {
+		// selinux is disabled
+		return "", nil
+	}
+	processLabel := selinux.ROFileLabel()
 	selinux.ReleaseLabel(processLabel)
 	return swapSELinuxLabel(cLabel, processLabel)
 }

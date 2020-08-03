@@ -290,7 +290,9 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	specgen.AddAnnotation(annotations.ImageName, imageName)
 	specgen.AddAnnotation(annotations.ImageRef, imageRef)
 
-	labelOptions, err := ctr.SelinuxLabel(sb.ProcessLabel())
+	kubeAnnotations := containerConfig.GetAnnotations()
+
+	labelOptions, err := ctr.SelinuxLabel(sb.ProcessLabel(), kubeAnnotations["io.kubernetes.cri-o.SELinuxROLabel"] == "true")
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +380,6 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		return nil, err
 	}
 
-	kubeAnnotations := containerConfig.GetAnnotations()
 	for k, v := range kubeAnnotations {
 		specgen.AddAnnotation(k, v)
 	}
@@ -593,7 +594,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	specgen.SetProcessArgs(processArgs)
 
 	if strings.Contains(processArgs[0], "/sbin/init") || (filepath.Base(processArgs[0]) == "systemd") {
-		processLabel, err = selinux.SELinuxInitLabel(processLabel)
+		processLabel, err = selinux.InitLabel(processLabel)
 		if err != nil {
 			return nil, err
 		}
