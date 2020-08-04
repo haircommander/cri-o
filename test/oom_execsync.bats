@@ -11,16 +11,21 @@ function teardown() {
 }
 
 function calculate_highest_cgroup_val() {
-	current_highest=$1
-	to_search=$2
-	slice=$3
+	local current_highest=$1
+	local to_search=$2
+	local cgroup_file=$3
+	echo have $current_highest $to_search $cgroup_file >&3
+	current=$(cat $cgroup_file | grep $to_search | awk '{
+	  if ($2)
+	  	print $2;
+	  else
+	  	print $1;
+	}')
 
-	current=$(cat $slice/memory.stat | grep $to_search | awk '{ printf $2 }')
-	echo=$(cat $slice/memory.stat | grep $to_search | awk '{ printf $2 }')
+	echo $current >&3
 	if [ $current -gt $current_highest ]; then
 		current_highest=$current
 		echo "[$(date +'%T')] highest $to_search $(echo $current_highest | awk '{print $1/1024}') KB" >&3
-		#echo "[$(date +'%T')] highest $to_search $(echo $current_highest | awk '{print $1/1024/1024}') MB" >&3
 	fi
 	echo $current_highest
 }
@@ -38,20 +43,20 @@ function calculate_highest_cgroup_val() {
 	slice=/sys/fs/cgroup/memory$(systemctl status crio-$ctr_id.scope | grep CGroup | awk '{ print $2 }')
 	echo $slice >&3
 	attempt=0
-	highest_rss=0
-	highest_cache=0
-	highest_active=0
-	while [ $attempt -le 10000 ]; do
+	local highest_rss=0
+	#local highest_cache=0
+	local highest_memory_usage=0
+	sleep 2s
+	while [ $attempt -le 100 ]; do
 		attempt=$((attempt+1))
 		run crictl exec --sync $ctr_id ls
-		highest_rss=$(calculate_highest_cgroup_val $highest_rss 'total_rss ' $slice)
-		highest_cache=$(calculate_highest_cgroup_val $highest_cache 'total_cache ' $slice)
-		highest_active=$(calculate_highest_cgroup_val $highest_active 'total_active_file ' $slice)
+		highest_memory_usage=$(calculate_highest_cgroup_val $highest_memory_usage '-v usage' $slice/memory.usage_in_bytes)
+		highest_rss=$(calculate_highest_cgroup_val $highest_rss "'total_rss '" $slice/memory.stat)
+		#highest_cache=$(calculate_highest_cgroup_val $highest_cache 'total_cache ' $slice/memory.stat)
 	done
 
-	sleep 1s
-	echo "final total rss:" $(cat $slice/memory.stat | grep 'total_rss ' | awk '{ print $2/1024/1024 }') "MB" >&3
-	echo "final total cache:" $(cat $slice/memory.stat | grep 'total_cache ' | awk '{ print $2/1024/1024 }') "MB" >&3
+	sleep 2s
+	echo "final total rss:" $(cat $slice/memory.stat | grep 'total_rss ' | awk '{ print $2/1024}') "KB" >&3
 
 	run crictl rmp -fa
 	echo "$output"
