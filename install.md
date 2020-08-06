@@ -41,16 +41,16 @@ CRI-O builds for native package managers using [openSUSE's OBS](build.opensuse.o
 ### Supported versions
 Below is a compatiblity matrix between versions of CRI-O (y-axis) and distributions (x-axis)
 
-|      | Fedora 31+ | openSUSE | CentOS_8 | CentOS_8_Stream | CentOS_7 | Debian_Unstable | Debian_Testing | Debian 10 | Rasbian_10 | xUbuntu_20.04 | xUbuntu_19.10 | xUbuntu_19.04 | xUbuntu_18.04 |
-| ---- | ---------- | -------- | -------- | --------------- | -------- | --------------- | -------------- | --------- | ---------- | ------------- | ------------- | ------------- | ------------- |
-| 1.18 | ✓          | ✓        | ✓        | ✓               |          | ✓               | ✓              |           |            | ✓             |               |               |               |
-| 1.17 | ✓          | ✓        | ✓        | ✓               | ✓        | ✓               | ✓              | ✓         | ✓          | ✓             | ✓             | ✓             | ✓             |
-| 1.16 | ✓          | ✓        | ✓        | ✓               | ✓        | ✓               | ✓              | ✓         | ✓          | ✓             | ✓             | ✓             | ✓             |
+|      | Fedora 31+ | openSUSE | CentOS_8 | CentOS_8_Stream | CentOS_7 | Debian_Unstable | Debian_Testing | Debian 10 | xUbuntu_20.04 | xUbuntu_19.10 | xUbuntu_19.04 | xUbuntu_18.04 |
+| ---- | ---------- | -------- | -------- | --------------- | -------- | --------------- | -------------- | --------- | ------------- | ------------- | ------------- | ------------- |
+| 1.18 | ✓          | ✓        | ✓        | ✓               | ✓        | ✓               | ✓              | ✓         | ✓             | ✓             | ✓             | ✓             |
+| 1.17 | ✓          | ✓        | ✓        | ✓               | ✓        | ✓               | ✓              | ✓         | ✓             | ✓             | ✓             | ✓             |
+| 1.16 | ✓          | ✓        | ✓        | ✓               | ✓        | ✓               | ✓              | ✓         | ✓             | ✓             | ✓             | ✓             |
 
 To install, choose a supported version for your operating system, and export it as a variable, like so:
 `export VERSION=1.18`
 
-We also save releases as subprojects. If you'd, for instance, like to use `1.18.3` you can set
+We also save releases as subprojects. For instance, if you'd like to use `1.18.3` you can set:
 `export VERSION=1.18:1.18.3`
 
 ### Installation Instructions
@@ -67,7 +67,7 @@ sudo dnf install cri-o
 ```
 For Fedora, we only support setting minor versions. i.e: `VERSION=1.18`, and do not support pinning patch versions: `VERSION=1.18.3`
 
-#### Other yum based operating systems
+#### Centos
 To install on the following operating systems, set the environment variable $OS as the appropriate field in the following table:
 
 | Operating system | $OS               |
