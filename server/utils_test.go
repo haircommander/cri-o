@@ -110,6 +110,7 @@ func TestGetDecryptionKeys(t *testing.T) {
 	}
 }
 
+// TODO FIXME gotta move this
 func TestGetSourceMount(t *testing.T) {
 	mountinfo := []*mount.Info{
 		{Mountpoint: "/"},

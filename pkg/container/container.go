@@ -73,6 +73,10 @@ type Container interface {
 	// it takes the sandbox's label, which it falls back upon
 	SelinuxLabel(string) ([]string, error)
 
+	// OCIBindMounts takes the bind mounts currently configured in the container config and prepares them
+	// for being added to the spec
+	OCIBindMounts(context.Context, string, string) ([]oci.ContainerVolume, []rspec.Mount, error)
+
 	// spec functions
 
 	// returns the spec

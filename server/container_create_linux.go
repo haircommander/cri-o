@@ -18,7 +18,6 @@ import (
 	createconfig "github.com/containers/libpod/pkg/spec"
 	cstorage "github.com/containers/storage"
 	"github.com/containers/storage/pkg/idtools"
-	"github.com/containers/storage/pkg/mount"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
@@ -400,7 +399,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		}
 	}()
 
-	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, mountLabel, containerConfig, specgen, s.config.RuntimeConfig.BindMountPrefix)
+	containerVolumes, ociMounts, err := ctr.OCIBindMounts(ctx, mountLabel, s.config.RuntimeConfig.BindMountPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -904,135 +903,6 @@ func clearReadOnly(m *rspec.Mount) {
 	}
 	m.Options = opt
 	m.Options = append(m.Options, "rw")
-}
-
-func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *pb.ContainerConfig, specgen *generate.Generator, bindMountPrefix string) ([]oci.ContainerVolume, []rspec.Mount, error) {
-	volumes := []oci.ContainerVolume{}
-	ociMounts := []rspec.Mount{}
-	mounts := containerConfig.GetMounts()
-
-	// Sort mounts in number of parts. This ensures that high level mounts don't
-	// shadow other mounts.
-	sort.Sort(criOrderedMounts(mounts))
-
-	// Copy all mounts from default mounts, except for
-	// - mounts overridden by supplied mount;
-	// - all mounts under /dev if a supplied /dev is present.
-	mountSet := make(map[string]struct{})
-	for _, m := range mounts {
-		mountSet[filepath.Clean(m.ContainerPath)] = struct{}{}
-	}
-	defaultMounts := specgen.Mounts()
-	specgen.ClearMounts()
-	for _, m := range defaultMounts {
-		dst := filepath.Clean(m.Destination)
-		if _, ok := mountSet[dst]; ok {
-			// filter out mount overridden by a supplied mount
-			continue
-		}
-		if _, mountDev := mountSet["/dev"]; mountDev && strings.HasPrefix(dst, "/dev/") {
-			// filter out everything under /dev if /dev is a supplied mount
-			continue
-		}
-		if _, mountSys := mountSet["/sys"]; mountSys && strings.HasPrefix(dst, "/sys/") {
-			// filter out everything under /sys if /sys is a supplied mount
-			continue
-		}
-		specgen.AddMount(m)
-	}
-
-	mountInfos, err := mount.GetMounts()
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, m := range mounts {
-		dest := m.GetContainerPath()
-		if dest == "" {
-			return nil, nil, fmt.Errorf("mount.ContainerPath is empty")
-		}
-
-		if m.HostPath == "" {
-			return nil, nil, fmt.Errorf("mount.HostPath is empty")
-		}
-		src := filepath.Join(bindMountPrefix, m.GetHostPath())
-
-		resolvedSrc, err := resolveSymbolicLink(src, bindMountPrefix)
-		if err == nil {
-			src = resolvedSrc
-		} else {
-			if !os.IsNotExist(err) {
-				return nil, nil, fmt.Errorf("failed to resolve symlink %q: %v", src, err)
-			} else if err = os.MkdirAll(src, 0o755); err != nil {
-				return nil, nil, fmt.Errorf("failed to mkdir %s: %s", src, err)
-			}
-		}
-
-		options := []string{"rw"}
-		if m.Readonly {
-			options = []string{"ro"}
-		}
-		options = append(options, "rbind")
-
-		// mount propagation
-		switch m.GetPropagation() {
-		case pb.MountPropagation_PROPAGATION_PRIVATE:
-			options = append(options, "rprivate")
-			// Since default root propagation in runc is rprivate ignore
-			// setting the root propagation
-		case pb.MountPropagation_PROPAGATION_BIDIRECTIONAL:
-			if err := ensureShared(src, mountInfos); err != nil {
-				return nil, nil, err
-			}
-			options = append(options, "rshared")
-			if err := specgen.SetLinuxRootPropagation("rshared"); err != nil {
-				return nil, nil, err
-			}
-		case pb.MountPropagation_PROPAGATION_HOST_TO_CONTAINER:
-			if err := ensureSharedOrSlave(src, mountInfos); err != nil {
-				return nil, nil, err
-			}
-			options = append(options, "rslave")
-			if specgen.Config.Linux.RootfsPropagation != "rshared" &&
-				specgen.Config.Linux.RootfsPropagation != "rslave" {
-				if err := specgen.SetLinuxRootPropagation("rslave"); err != nil {
-					return nil, nil, err
-				}
-			}
-		default:
-			log.Warnf(ctx, "unknown propagation mode for hostPath %q", m.HostPath)
-			options = append(options, "rprivate")
-		}
-
-		if m.SelinuxRelabel {
-			if err := securityLabel(src, mountLabel, false); err != nil {
-				return nil, nil, err
-			}
-		}
-
-		volumes = append(volumes, oci.ContainerVolume{
-			ContainerPath: dest,
-			HostPath:      src,
-			Readonly:      m.Readonly,
-		})
-
-		ociMounts = append(ociMounts, rspec.Mount{
-			Source:      src,
-			Destination: dest,
-			Options:     options,
-		})
-	}
-
-	if _, mountSys := mountSet["/sys"]; !mountSys {
-		m := rspec.Mount{
-			Destination: "/sys/fs/cgroup",
-			Type:        "cgroup",
-			Source:      "cgroup",
-			Options:     []string{"nosuid", "noexec", "nodev", "relatime", "ro"},
-		}
-		specgen.AddMount(m)
-	}
-
-	return volumes, ociMounts, nil
 }
 
 func getDevicesFromConfig(ctx context.Context, config *libconfig.Config) ([]configDevice, error) {
