@@ -386,8 +386,26 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if retErr != nil {
+			log.Infof(ctx, "createCtrLinux: deleting container %s from storage", containerInfo.ID)
+			err2 := s.StorageRuntimeServer().DeleteContainer(containerInfo.ID)
+			if err2 != nil {
+				log.Warnf(ctx, "Failed to cleanup container directory: %v", err2)
+			}
+		}
+	}()
 
 	mountLabel := containerInfo.MountLabel
+
+	alreadyLabelled := false
+	if mountLabelOld := s.GetNameLabel(ctr.Name()); mountLabelOld == mountLabel {
+		log.Infof(ctx, "mount label for container %s already saved: %s, reusing cache", ctr.Name(), mountLabelOld)
+		alreadyLabelled = true
+	} else {
+		log.Infof(ctx, "mount label for container %s not saved: %s", ctr.Name(), mountLabelOld)
+	}
+
 	var processLabel string
 	if !ctr.Privileged() {
 		processLabel = containerInfo.ProcessLabel
@@ -405,19 +423,15 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		processLabel = ""
 	}
 
-	defer func() {
-		if retErr != nil {
-			log.Infof(ctx, "createCtrLinux: deleting container %s from storage", containerInfo.ID)
-			err2 := s.StorageRuntimeServer().DeleteContainer(containerInfo.ID)
-			if err2 != nil {
-				log.Warnf(ctx, "Failed to cleanup container directory: %v", err2)
-			}
-		}
-	}()
-
-	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, mountLabel, containerConfig, &specgen, s.config.RuntimeConfig.BindMountPrefix)
+	fmt.Println(containerInfo.MountLabel)
+	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, mountLabel, alreadyLabelled, containerConfig, &specgen, s.config.RuntimeConfig.BindMountPrefix)
 	if err != nil {
 		return nil, err
+	}
+	if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {
+		log.Infof(ctx, "createCtr: context was either canceled or the deadline was exceeded after mounts were created: %v", ctx.Err())
+		s.AddNameLabel(ctr.Name(), mountLabel)
+		return nil, ctx.Err()
 	}
 
 	volumesJSON, err := json.Marshal(containerVolumes)
@@ -999,7 +1013,7 @@ func clearReadOnly(m *rspec.Mount) {
 	m.Options = append(m.Options, "rw")
 }
 
-func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *pb.ContainerConfig, specgen *generate.Generator, bindMountPrefix string) ([]oci.ContainerVolume, []rspec.Mount, error) {
+func addOCIBindMounts(ctx context.Context, mountLabel string, alreadyLabelled bool, containerConfig *pb.ContainerConfig, specgen *generate.Generator, bindMountPrefix string) ([]oci.ContainerVolume, []rspec.Mount, error) {
 	volumes := []oci.ContainerVolume{}
 	ociMounts := []rspec.Mount{}
 	mounts := containerConfig.GetMounts()
@@ -1038,6 +1052,13 @@ func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *p
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if !alreadyLabelled {
+		time.Sleep(2 * time.Second)
+	} else {
+		log.Infof(ctx, "not today!")
+	}
+
 	for _, m := range mounts {
 		dest := m.GetContainerPath()
 		if dest == "" {
@@ -1096,7 +1117,7 @@ func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *p
 			options = append(options, "rprivate")
 		}
 
-		if m.SelinuxRelabel {
+		if m.SelinuxRelabel && !alreadyLabelled {
 			if err := securityLabel(src, mountLabel, false); err != nil {
 				return nil, nil, err
 			}

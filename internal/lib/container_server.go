@@ -43,10 +43,30 @@ type ContainerServer struct {
 	podNameIndex         *registrar.Registrar
 	podIDIndex           *truncindex.TruncIndex
 	Hooks                *hooks.Manager
+	// TODO better map
+	ctrNameLabels        map[string]string
 
 	stateLock sync.Locker
 	state     *containerServerState
 	config    *libconfig.Config
+}
+
+func (c *ContainerServer) AddNameLabel(name, label string) {
+	c.stateLock.Lock()
+	defer c.stateLock.Unlock()
+	if c.ctrNameLabels == nil {
+		c.ctrNameLabels = make(map[string]string)
+	}
+	c.ctrNameLabels[name] = label
+}
+
+func (c *ContainerServer) GetNameLabel(name string) string {
+	c.stateLock.Lock()
+	defer c.stateLock.Unlock()
+	if c.ctrNameLabels == nil {
+		c.ctrNameLabels = make(map[string]string)
+	}
+	return c.ctrNameLabels[name]
 }
 
 // Runtime returns the oci runtime for the ContainerServer
