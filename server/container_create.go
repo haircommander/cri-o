@@ -115,7 +115,8 @@ func ensureSharedOrSlave(path string, mountInfos []*mount.Info) error {
 	return fmt.Errorf("path %q is mounted on %q but it is not a shared or slave mount", path, sourceMount)
 }
 
-func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInfo *storage.ContainerInfo, mountLabel string, specgen *generate.Generator, containerName string) ([]rspec.Mount, error) {
+func addImageVolumes(ctx context.Context, ctr container.Container, rootfs string, s *Server, containerInfo *storage.ContainerInfo, mountLabel string) ([]rspec.Mount, error) {
+	specgen := ctr.Spec()
 	mounts := []rspec.Mount{}
 	for dest := range containerInfo.Config.Config.Volumes {
 		fp, err := securejoin.SecureJoin(rootfs, dest)
@@ -129,7 +130,7 @@ func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInf
 				return nil, err1
 			}
 			if mountLabel != "" {
-				if err1 := s.LabelContainerPath(containerName, fp, mountLabel, true); err1 != nil {
+				if err1 := s.LabelContainerPath(ctr.Name(), fp, mountLabel, true); err1 != nil {
 					return nil, err1
 				}
 			}
@@ -486,7 +487,6 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create container")
 	}
-
 	if err := ctr.SetConfig(req.GetConfig(), req.GetSandboxConfig()); err != nil {
 		return nil, errors.Wrap(err, "setting container config")
 	}

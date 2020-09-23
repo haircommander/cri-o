@@ -401,7 +401,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		}
 	}()
 
-	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, mountLabel, containerConfig, specgen, s.config.RuntimeConfig.BindMountPrefix, ctr.Name(), s)
+	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, ctr, mountLabel, s.config.RuntimeConfig.BindMountPrefix, s)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +728,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	}
 
 	// Add image volumes
-	volumeMounts, err := addImageVolumes(ctx, mountPoint, s, &containerInfo, mountLabel, specgen, ctr.Name())
+	volumeMounts, err := addImageVolumes(ctx, ctr, mountPoint, s, &containerInfo, mountLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -902,10 +902,11 @@ func clearReadOnly(m *rspec.Mount) {
 	m.Options = append(m.Options, "rw")
 }
 
-func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *pb.ContainerConfig, specgen *generate.Generator, bindMountPrefix, name string, s *Server) ([]oci.ContainerVolume, []rspec.Mount, error) {
+func addOCIBindMounts(ctx context.Context, ctr ctrIface.Container, mountLabel, bindMountPrefix string, s *Server) ([]oci.ContainerVolume, []rspec.Mount, error) {
+	specgen := ctr.Spec()
 	volumes := []oci.ContainerVolume{}
 	ociMounts := []rspec.Mount{}
-	mounts := containerConfig.GetMounts()
+	mounts := ctr.Config().GetMounts()
 
 	// Sort mounts in number of parts. This ensures that high level mounts don't
 	// shadow other mounts.
@@ -1000,7 +1001,7 @@ func addOCIBindMounts(ctx context.Context, mountLabel string, containerConfig *p
 		}
 
 		if m.SelinuxRelabel {
-			if err := s.LabelContainerPath(name, src, mountLabel, false); err != nil {
+			if err := s.LabelContainerPath(ctr.Name(), src, mountLabel, false); err != nil {
 				return nil, nil, err
 			}
 		}
