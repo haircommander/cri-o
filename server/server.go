@@ -21,6 +21,7 @@ import (
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
+	"github.com/cri-o/cri-o/internal/selinuxcache"
 	"github.com/cri-o/cri-o/internal/storage"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/server/metrics"
@@ -57,6 +58,7 @@ type Server struct {
 	hostportManager hostport.HostPortManager
 
 	*lib.ContainerServer
+	*selinuxcache.SELinuxCache
 	monitorsChan      chan struct{}
 	defaultIDMappings *idtools.IDMappings
 
@@ -359,6 +361,7 @@ func New(
 		monitorsChan:             make(chan struct{}),
 		defaultIDMappings:        idMappings,
 		pullOperationsInProgress: make(map[pullArguments]*pullOperation),
+		SELinuxCache:             selinuxcache.New(),
 	}
 
 	if err := configureMaxThreads(); err != nil {

@@ -115,7 +115,7 @@ func ensureSharedOrSlave(path string, mountInfos []*mount.Info) error {
 	return fmt.Errorf("path %q is mounted on %q but it is not a shared or slave mount", path, sourceMount)
 }
 
-func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInfo *storage.ContainerInfo, mountLabel string, specgen *generate.Generator) ([]rspec.Mount, error) {
+func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInfo *storage.ContainerInfo, mountLabel string, specgen *generate.Generator, containerName string) ([]rspec.Mount, error) {
 	mounts := []rspec.Mount{}
 	for dest := range containerInfo.Config.Config.Volumes {
 		fp, err := securejoin.SecureJoin(rootfs, dest)
@@ -129,7 +129,7 @@ func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInf
 				return nil, err1
 			}
 			if mountLabel != "" {
-				if err1 := securityLabel(fp, mountLabel, true); err1 != nil {
+				if err1 := s.LabelContainerPath(containerName, fp, mountLabel, true); err1 != nil {
 					return nil, err1
 				}
 			}
@@ -141,7 +141,7 @@ func addImageVolumes(ctx context.Context, rootfs string, s *Server, containerInf
 			}
 			// Label the source with the sandbox selinux mount label
 			if mountLabel != "" {
-				if err1 := securityLabel(src, mountLabel, true); err1 != nil {
+				if err1 := s.LabelContainerPath(containerName, src, mountLabel, true); err1 != nil {
 					return nil, err1
 				}
 			}
@@ -232,7 +232,7 @@ func buildOCIProcessArgs(ctx context.Context, containerKubeConfig *pb.ContainerC
 }
 
 // setupContainerUser sets the UID, GID and supplemental groups in OCI runtime config
-func setupContainerUser(ctx context.Context, specgen *generate.Generator, rootfs, mountLabel, ctrRunDir string, sc *pb.LinuxContainerSecurityContext, imageConfig *v1.Image) error {
+func setupContainerUser(ctx context.Context, specgen *generate.Generator, rootfs, mountLabel, ctrRunDir string, sc *pb.LinuxContainerSecurityContext, imageConfig *v1.Image, containerName string, server *Server) error {
 	if sc == nil {
 		return nil
 	}
@@ -283,7 +283,7 @@ func setupContainerUser(ctx context.Context, specgen *generate.Generator, rootfs
 			return err
 		}
 		if passwdPath != "" {
-			if err := securityLabel(passwdPath, mountLabel, false); err != nil {
+			if err := server.LabelContainerPath(containerName, passwdPath, mountLabel, false); err != nil {
 				return err
 			}
 
@@ -506,6 +506,8 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 		}
 	}()
 
+	s.AddSELinuxCacheEntry(ctr.Name())
+
 	newContainer, err := s.createSandboxContainer(ctx, ctr, sb)
 	if err != nil {
 		return nil, err
@@ -561,6 +563,8 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 	}
 
 	log.Infof(ctx, "Created container %s: %s", newContainer.ID(), newContainer.Description())
+	// TODO FIXME name
+	s.RemoveSELinuxCacheEntry(ctr.Name())
 	return &pb.CreateContainerResponse{
 		ContainerId: ctr.ID(),
 	}, nil

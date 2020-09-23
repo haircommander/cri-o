@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/selinuxcache"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -26,7 +27,14 @@ func TestAddOCIBindsForDev(t *testing.T) {
 			},
 		},
 	}
-	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "")
+
+	s := &Server{
+		SELinuxCache: selinuxcache.New(),
+	}
+
+	ctrName := "name"
+	s.AddSELinuxCacheEntry(ctrName)
+	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "", ctrName, s)
 	if err != nil {
 		t.Error(err)
 	}
@@ -60,7 +68,14 @@ func TestAddOCIBindsForSys(t *testing.T) {
 			},
 		},
 	}
-	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "")
+	s := &Server{
+		SELinuxCache: selinuxcache.New(),
+	}
+
+	ctrName := "name"
+	s.AddSELinuxCacheEntry(ctrName)
+
+	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "", ctrName, s)
 	if err != nil {
 		t.Error(err)
 	}
