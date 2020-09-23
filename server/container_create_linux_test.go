@@ -8,6 +8,7 @@ import (
 
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/selinuxcache"
+	"github.com/cri-o/cri-o/pkg/container"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -15,11 +16,9 @@ import (
 )
 
 func TestAddOCIBindsForDev(t *testing.T) {
-	specgen, err := generate.New("linux")
-	if err != nil {
-		t.Error(err)
-	}
+	ctrName := "name"
 	config := &pb.ContainerConfig{
+		Metadata: &pb.ContainerMetadata{Name: ctrName},
 		Mounts: []*pb.Mount{
 			{
 				ContainerPath: "/dev",
@@ -32,13 +31,23 @@ func TestAddOCIBindsForDev(t *testing.T) {
 		SELinuxCache: selinuxcache.New(),
 	}
 
-	ctrName := "name"
-	s.AddSELinuxCacheEntry(ctrName)
-	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "", ctrName, s)
+	ctr, err := container.New()
 	if err != nil {
 		t.Error(err)
 	}
-	for _, m := range specgen.Mounts() {
+	if err := ctr.SetConfig(config, &pb.PodSandboxConfig{}); err != nil {
+		t.Error(err)
+	}
+	if err := ctr.SetNameAndID(); err != nil {
+		t.Error(err)
+	}
+
+	s.AddSELinuxCacheEntry(ctrName)
+	_, binds, err := addOCIBindMounts(context.Background(), ctr, "", "", s)
+	if err != nil {
+		t.Error(err)
+	}
+	for _, m := range ctr.Spec().Mounts() {
 		if m.Destination == "/dev" {
 			t.Error("/dev shouldn't be in the spec if it's bind mounted from kube")
 		}
@@ -56,11 +65,9 @@ func TestAddOCIBindsForDev(t *testing.T) {
 }
 
 func TestAddOCIBindsForSys(t *testing.T) {
-	specgen, err := generate.New("linux")
-	if err != nil {
-		t.Error(err)
-	}
+	ctrName := "name"
 	config := &pb.ContainerConfig{
+		Metadata: &pb.ContainerMetadata{Name: ctrName},
 		Mounts: []*pb.Mount{
 			{
 				ContainerPath: "/sys",
@@ -72,10 +79,19 @@ func TestAddOCIBindsForSys(t *testing.T) {
 		SELinuxCache: selinuxcache.New(),
 	}
 
-	ctrName := "name"
-	s.AddSELinuxCacheEntry(ctrName)
+	ctr, err := container.New()
+	if err != nil {
+		t.Error(err)
+	}
+	if err := ctr.SetConfig(config, &pb.PodSandboxConfig{}); err != nil {
+		t.Error(err)
+	}
+	if err := ctr.SetNameAndID(); err != nil {
+		t.Error(err)
+	}
 
-	_, binds, err := addOCIBindMounts(context.Background(), "", config, &specgen, "", ctrName, s)
+	s.AddSELinuxCacheEntry(ctrName)
+	_, binds, err := addOCIBindMounts(context.Background(), ctr, "", "", s)
 	if err != nil {
 		t.Error(err)
 	}

@@ -1,7 +1,6 @@
 package container
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -89,7 +88,6 @@ type Container interface {
 
 // container is the hidden default type behind the Container interface
 type container struct {
-	ctx        context.Context
 	config     *pb.ContainerConfig
 	sboxConfig *pb.PodSandboxConfig
 	id         string
@@ -99,13 +97,12 @@ type container struct {
 }
 
 // New creates a new, empty Sandbox instance
-func New(ctx context.Context) (Container, error) {
+func New() (Container, error) {
 	spec, err := generate.New("linux")
 	if err != nil {
 		return nil, err
 	}
 	return &container{
-		ctx:  ctx,
 		spec: spec,
 	}, nil
 }

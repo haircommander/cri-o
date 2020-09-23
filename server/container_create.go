@@ -483,7 +483,7 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 		return nil, fmt.Errorf("CreateContainer failed as the sandbox was stopped: %v", sbID)
 	}
 
-	ctr, err := container.New(ctx)
+	ctr, err := container.New()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create container")
 	}
