@@ -694,32 +694,26 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 
 	// now that we have the namespaces, we should create the network if we're managing namespace Lifecycle
 	var ips []string
-	var result cnitypes.Result
+	var networkInfoChan chan *networkInfo
 
 	if s.config.ManageNSLifecycle {
-		ips, result, err = s.networkStart(ctx, sb)
-		if err != nil {
-			return nil, err
-		}
+		networkInfoChan = s.setupNetworkForSandbox(ctx, sb)
 		defer func() {
 			if retErr != nil {
+				// wait until the network has successfully completed before removing
+				ni := <-networkInfoChan
+				// if the error in network creation also errored
+				// then we should not re-stop the network
+				if ni.Error() != nil {
+					return
+				}
+
 				log.Infof(ctx, "runSandbox: in manageNSLifecycle, stopping network for sandbox %s", sb.ID())
 				if err2 := s.networkStop(ctx, sb); err2 != nil {
 					log.Errorf(ctx, "error stopping network on cleanup: %v", err2)
 				}
 			}
 		}()
-		if result != nil {
-			resultCurrent, err := current.NewResultFromResult(result)
-			if err != nil {
-				return nil, err
-			}
-			cniResultJSON, err := json.Marshal(resultCurrent)
-			if err != nil {
-				return nil, err
-			}
-			g.AddAnnotation(annotations.CNIResult, string(cniResultJSON))
-		}
 	}
 
 	// Set OOM score adjust of the infra container to be very low
@@ -827,6 +821,29 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		strings.Contains(strings.ToLower(runtimeHandler), "kata") ||
 		(runtimeHandler == "" && strings.Contains(strings.ToLower(s.config.DefaultRuntime), "kata"))
 
+	// when we have a kernel separated pod, we need to start the network before
+	// the infra container is started. This allows the runtime to setup
+	// the network correctly
+	if podIsKernelSeparated {
+		// wait for network completion to create
+		ni := <-networkInfoChan
+		if ni.Error() != nil {
+			return nil, ni.Error()
+		}
+		ips = ni.IPs()
+		if result := ni.Result(); result != nil {
+			resultCurrent, err := current.NewResultFromResult(result)
+			if err != nil {
+				return nil, err
+			}
+			cniResultJSON, err := json.Marshal(resultCurrent)
+			if err != nil {
+				return nil, err
+			}
+			g.AddAnnotation(annotations.CNIResult, string(cniResultJSON))
+		}
+	}
+
 	var container *oci.Container
 	// In the case of kernel separated containers, we need the infra container to create the VM for the pod
 	if sb.NeedsInfra(s.config.DropInfraCtr) || podIsKernelSeparated {
@@ -921,19 +938,25 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	}
 
 	if !s.config.ManageNSLifecycle {
-		ips, _, err = s.networkStart(ctx, sb)
-		if err != nil {
-			return nil, err
-		}
+		networkInfoChan = s.setupNetworkForSandbox(ctx, sb)
+		// here we register the cleanup func
+		// as we've already done in the ManageNSLifecycle case
+		// We don't need to check if we've pulled 
 		defer func() {
 			if retErr != nil {
-				log.Infof(ctx, "runSandbox: in not manageNSLifecycle, stopping network for sandbox %s", sb.ID())
+				log.Infof(ctx, "runSandbox: in manageNSLifecycle, stopping network for sandbox %s", sb.ID())
 				if err2 := s.networkStop(ctx, sb); err2 != nil {
 					log.Errorf(ctx, "error stopping network on cleanup: %v", err2)
 				}
 			}
 		}()
 	}
+	ni := <-networkInfoChan
+	if ni.Error() != nil {
+		return nil, ni.Error()
+	}
+
+
 
 	for idx, ip := range ips {
 		g.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
