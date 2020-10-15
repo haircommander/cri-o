@@ -68,9 +68,9 @@ func (s *Server) configureSandboxIDMappings(mode string, sc *pb.LinuxSandboxSecu
 	// Ignore the annotation if not explicitly set in the config file.
 	if !s.config.AllowUsernsAnnotation || mode == "" {
 		// No mode specified but mappings set in the config file, let's use them.
-		if s.defaultIDMappings != nil {
-			uids := s.defaultIDMappings.UIDs()
-			gids := s.defaultIDMappings.GIDs()
+		if s.config.Userns().IDMappings() != nil {
+			uids := s.config.Userns().IDMappings().UIDs()
+			gids := s.config.Userns().IDMappings().GIDs()
 			return &storage.IDMappingOptions{UIDMap: uids, GIDMap: gids}, nil
 		}
 		return nil, nil
@@ -207,14 +207,14 @@ func (s *Server) configureSandboxIDMappings(mode string, sc *pb.LinuxSandboxSecu
 		}
 
 		if uids == nil && gids == nil {
-			if s.defaultIDMappings == nil {
+			if s.config.Userns().IDMappings() == nil {
 				// no configuration and no global mappings
 				return nil, errors.Errorf("userns requested but no userns mappings configured")
 			}
 
 			// no configuration specified, so use the global mappings
-			uids = s.defaultIDMappings.UIDs()
-			gids = s.defaultIDMappings.GIDs()
+			uids = s.config.Userns().IDMappings().UIDs()
+			gids = s.config.Userns().IDMappings().GIDs()
 		} else {
 			// one between uids and gids is set, use the same range
 			if uids == nil && gids != nil {
@@ -247,11 +247,11 @@ func (s *Server) getSandboxIDMappings(sb *libsandbox.Sandbox) (*idtools.IDMappin
 			return mappings, nil
 		}
 	}
-	if sb.UsernsMode() == "" && s.defaultIDMappings == nil {
+	if sb.UsernsMode() == "" && s.config.Userns().IDMappings() == nil {
 		return nil, nil
 	}
 	// Ignore the annotation if not explicitly set in the config file.
-	if s.defaultIDMappings == nil && !s.config.AllowUsernsAnnotation {
+	if s.config.Userns().IDMappings() == nil && !s.config.AllowUsernsAnnotation {
 		return nil, nil
 	}
 	if ic == nil {
@@ -763,7 +763,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 			}
 			g.AddMount(proc)
 		}
-		rootPair := s.defaultIDMappings.RootPair()
+		rootPair := s.config.Userns().IDMappings().RootPair()
 		for _, path := range pathsToChown {
 			if err := os.Chown(path, rootPair.UID, rootPair.GID); err != nil {
 				return nil, errors.Wrapf(err, "cannot chown %s to %d:%d", path, rootPair.UID, rootPair.GID)

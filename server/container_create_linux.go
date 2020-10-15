@@ -237,7 +237,7 @@ func (s *Server) finalizeUserMapping(specgen *generate.Generator, mappings *idto
 	}
 
 	// if the namespace was configured because of a static configuration, do not attempt any mapping
-	if s.defaultIDMappings != nil && !s.defaultIDMappings.Empty() {
+	if s.config.Userns().IDMappings() != nil && !s.config.Userns().IDMappings().Empty() {
 		return nil
 	}
 

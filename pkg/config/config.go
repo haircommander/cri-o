@@ -25,6 +25,7 @@ import (
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/config/seccomp"
 	"github.com/cri-o/cri-o/internal/config/ulimits"
+	"github.com/cri-o/cri-o/internal/config/userns"
 	"github.com/cri-o/cri-o/server/useragent"
 	"github.com/cri-o/cri-o/utils"
 	"github.com/cri-o/ocicni/pkg/ocicni"
@@ -318,6 +319,9 @@ type RuntimeConfig struct {
 	// ulimitConfig is the internal ulimit configuration
 	ulimitsConfig *ulimits.Config
 
+	// usernsConfig is the internal UserNSConfig configuration
+	usernsConfig *userns.Config
+
 	// cgroupManager is the internal CgroupManager configuration
 	cgroupManager cgmgr.CgroupManager
 
@@ -596,6 +600,7 @@ func DefaultConfig() (*Config, error) {
 			ManageNSLifecycle:        true,
 			seccompConfig:            seccomp.New(),
 			apparmorConfig:           apparmor.New(),
+			usernsConfig:             userns.New(),
 			ulimitsConfig:            ulimits.New(),
 			cgroupManager:            cgroupManager,
 		},
@@ -871,6 +876,9 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 		if err := c.apparmorConfig.LoadProfile(c.ApparmorProfile); err != nil {
 			return errors.Wrap(err, "unable to load AppArmor profile")
 		}
+		if err := c.usernsConfig.LoadIDMappings(c.UIDMappings, c.GIDMappings); err != nil {
+			return errors.Wrap(err, "unable to load UIDMappings or GIDMappings")
+		}
 		cgroupManager, err := cgmgr.SetCgroupManager(c.CgroupManagerName)
 		if err != nil {
 			return errors.Wrap(err, "unable to update cgroup manager")
@@ -929,6 +937,10 @@ func (c *RuntimeConfig) Seccomp() *seccomp.Config {
 // AppArmor returns the AppArmor configuration
 func (c *RuntimeConfig) AppArmor() *apparmor.Config {
 	return c.apparmorConfig
+}
+
+func (c *RuntimeConfig) Userns() *userns.Config {
+	return c.usernsConfig
 }
 
 // CgroupManager returns the CgroupManager configuration

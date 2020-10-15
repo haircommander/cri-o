@@ -2,10 +2,8 @@ package server
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 
-	"github.com/containers/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/types"
@@ -15,35 +13,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (s *Server) getIDMappingsInfo() types.IDMappings {
-	max := int64(int(^uint(0) >> 1))
-	if max > math.MaxUint32 {
-		max = math.MaxUint32
-	}
-
-	if s.defaultIDMappings == nil {
-		fullMapping := idtools.IDMap{
-			ContainerID: 0,
-			HostID:      0,
-			Size:        int(max),
-		}
-		return types.IDMappings{
-			Uids: []idtools.IDMap{fullMapping},
-			Gids: []idtools.IDMap{fullMapping},
-		}
-	}
-	return types.IDMappings{
-		Uids: s.defaultIDMappings.UIDs(),
-		Gids: s.defaultIDMappings.GIDs(),
-	}
-}
-
 func (s *Server) getInfo() types.CrioInfo {
 	return types.CrioInfo{
 		StorageDriver:     s.config.Storage,
 		StorageRoot:       s.config.Root,
 		CgroupDriver:      s.config.CgroupManager().Name(),
-		DefaultIDMappings: s.getIDMappingsInfo(),
+		DefaultIDMappings: s.config.Userns().Info(),
 	}
 }
 

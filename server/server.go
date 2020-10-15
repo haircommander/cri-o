@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/containers/image/v5/types"
-	"github.com/containers/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
@@ -59,8 +58,7 @@ type Server struct {
 	hostportManager hostport.HostPortManager
 
 	*lib.ContainerServer
-	monitorsChan      chan struct{}
-	defaultIDMappings *idtools.IDMappings
+	monitorsChan chan struct{}
 
 	updateLock sync.RWMutex
 
@@ -295,23 +293,6 @@ func configureMaxThreads() error {
 	return nil
 }
 
-func getIDMappings(config *libconfig.Config) (*idtools.IDMappings, error) {
-	if config.UIDMappings == "" || config.GIDMappings == "" {
-		return nil, nil
-	}
-
-	parsedUIDsMappings, err := idtools.ParseIDMap(strings.Split(config.UIDMappings, ","), "UID")
-	if err != nil {
-		return nil, err
-	}
-	parsedGIDsMappings, err := idtools.ParseIDMap(strings.Split(config.GIDMappings, ","), "GID")
-	if err != nil {
-		return nil, err
-	}
-
-	return idtools.NewIDMappingsFromMaps(parsedUIDsMappings, parsedGIDsMappings), nil
-}
-
 // New creates a new Server with the provided context and configuration
 func New(
 	ctx context.Context,
@@ -344,11 +325,6 @@ func New(
 	}
 	hostportManager := hostport.NewHostportManager(iptInterface)
 
-	idMappings, err := getIDMappings(config)
-	if err != nil {
-		return nil, err
-	}
-
 	if os.Getenv(rootlessEnvName) == "" {
 		// Not running as rootless, reset XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
 		os.Unsetenv("XDG_RUNTIME_DIR")
@@ -360,7 +336,6 @@ func New(
 		hostportManager:          hostportManager,
 		config:                   *config,
 		monitorsChan:             make(chan struct{}),
-		defaultIDMappings:        idMappings,
 		pullOperationsInProgress: make(map[pullArguments]*pullOperation),
 	}
 
