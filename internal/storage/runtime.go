@@ -56,6 +56,25 @@ type ContainerInfo struct {
 	MountLabel   string
 }
 
+type ContainerFactory interface {
+	PodName() string
+	PodID() string
+	ImageName() string
+	ImageID() string
+	ContainerName() string
+	ContainerID() string
+	MetadataName() string
+	UID() string
+	KubeNamespace() string
+	Attempt() uint32
+	LabelOptions() []string
+	Infra() bool
+	Privileged() bool
+	IDMappings() *storage.IDMappingOptions
+	SetIDMappings(*storage.IDMappingOptions)
+}
+
+
 // RuntimeServer wraps up various CRI-related activities into a reusable
 // implementation.
 type RuntimeServer interface {
@@ -70,7 +89,7 @@ type RuntimeServer interface {
 	// both its pod's ID and its container ID.
 	// Pointer arguments can be nil.  Either the image name or ID can be
 	// omitted, but not both.  All other arguments are required.
-	CreatePodSandbox(systemContext *types.SystemContext, podName, podID, imageName, imageAuthFile, imageID, containerName, metadataName, uid, namespace string, attempt uint32, idMappingsOptions *storage.IDMappingOptions, labelOptions []string, privileged bool) (ContainerInfo, error)
+	CreatePodSandbox(systemContext *types.SystemContext, imageAuthFile string, cf ContainerFactory) (ContainerInfo, error)
 	// RemovePodSandbox deletes a pod sandbox's infrastructure container.
 	// The CRI expects that a sandbox can't be removed unless its only
 	// container is its infrastructure container, but we don't enforce that
@@ -85,7 +104,7 @@ type RuntimeServer interface {
 	// CreateContainer creates a container with the specified ID.
 	// Pointer arguments can be nil.  Either the image name or ID can be
 	// omitted, but not both.  All other arguments are required.
-	CreateContainer(systemContext *types.SystemContext, podName, podID, imageName, imageID, containerName, containerID, metadataName string, attempt uint32, idMappingsOptions *storage.IDMappingOptions, labelOptions []string, privileged bool) (ContainerInfo, error)
+	CreateContainer(systemContext *types.SystemContext, imageAuthFile string, cf ContainerFactory) (ContainerInfo, error)
 	// DeleteContainer deletes a container, unmounting it first if need be.
 	DeleteContainer(idOrName string) error
 
@@ -130,14 +149,14 @@ type RuntimeContainerMetadata struct {
 	ContainerName string `json:"name"` // Applicable to both PodSandboxes and Containers, mandatory
 	// The name as originally specified in PodSandbox or Container CRI metadata.
 	MetadataName string `json:"metadata-name"`        // Applicable to both PodSandboxes and Containers, mandatory
-	UID          string `json:"uid,omitempty"`        // Only applicable to pods
-	Namespace    string `json:"namespace,omitempty"`  // Only applicable to pods
-	MountLabel   string `json:"mountlabel,omitempty"` // Applicable to both PodSandboxes and Containers
+	UID          string `json:"uid,omcfpty"`        // Only applicable to pods
+	Namespace    string `json:"namespace,omcfpty"`  // Only applicable to pods
+	MountLabel   string `json:"mountlabel,omcfpty"` // Applicable to both PodSandboxes and Containers
 	CreatedAt    int64  `json:"created-at"`           // Applicable to both PodSandboxes and Containers
-	Attempt      uint32 `json:"attempt,omitempty"`    // Applicable to both PodSandboxes and Containers
+	Attempt      uint32 `json:"attempt,omcfpty"`    // Applicable to both PodSandboxes and Containers
 	// Pod is true if this is the pod's infrastructure container.
-	Pod        bool `json:"pod,omitempty"`        // Applicable to both PodSandboxes and Containers
-	Privileged bool `json:"privileged,omitempty"` // Applicable to both PodSandboxes and Containers
+	Pod        bool `json:"pod,omcfpty"`        // Applicable to both PodSandboxes and Containers
+	Privileged bool `json:"privileged,omcfpty"` // Applicable to both PodSandboxes and Containers
 }
 
 // SetMountLabel updates the mount label held by a RuntimeContainerMetadata
@@ -146,42 +165,53 @@ func (metadata *RuntimeContainerMetadata) SetMountLabel(mountLabel string) {
 	metadata.MountLabel = mountLabel
 }
 
-func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.SystemContext, podName, podID, imageName, imageAuthFile, imageID, containerName, containerID, metadataName, uid, namespace string, attempt uint32, idMappingsOptions *storage.IDMappingOptions, labelOptions []string, isPauseImage, privileged bool) (ci ContainerInfo, retErr error) {
+func (r *runtimeService) CreatePodSandbox(systemContext *types.SystemContext, imageAuthFile string, cf ContainerFactory) (ContainerInfo, error) {
+	return r.createContainerOrPodSandbox(systemContext, imageAuthFile, true, cf)
+}
+
+func (r *runtimeService) CreateContainer(systemContext *types.SystemContext, imageAuthFile string, cf ContainerFactory) (ContainerInfo, error) {
+	return r.createContainerOrPodSandbox(systemContext, imageAuthFile, false, cf)
+}
+
+func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.SystemContext, imageAuthFile string, isPauseImage bool, cf ContainerFactory) (ci ContainerInfo, retErr error) {
 	var ref types.ImageReference
-	if podName == "" || podID == "" {
+	if cf.PodName() == "" || cf.PodID() == "" {
 		return ContainerInfo{}, ErrInvalidPodName
 	}
-	if imageName == "" && imageID == "" {
+	if cf.ImageName() == "" && cf.ImageID() == "" {
 		return ContainerInfo{}, ErrInvalidImageName
 	}
-	if containerName == "" {
+	if cf.ContainerName() == "" {
 		return ContainerInfo{}, ErrInvalidContainerName
 	}
+	// TODO FIXME maybe move this internal
+	metadataName := cf.MetadataName()
 	if metadataName == "" {
-		metadataName = containerName
+		metadataName = cf.ContainerName()
 	}
 
 	// Check if we have the specified image.
-	ref, err := istorage.Transport.ParseStoreReference(r.storageImageServer.GetStore(), imageName)
+	ref, err := istorage.Transport.ParseStoreReference(r.storageImageServer.GetStore(), cf.ImageName())
 	if err != nil {
 		// Maybe it's some other transport's copy of the image?
-		otherRef, err2 := alltransports.ParseImageName(imageName)
+		otherRef, err2 := alltransports.ParseImageName(cf.ImageName())
 		if err2 == nil && otherRef.DockerReference() != nil {
 			ref, err = istorage.Transport.ParseStoreReference(r.storageImageServer.GetStore(), otherRef.DockerReference().String())
 		}
 		if err != nil {
 			// Maybe the image ID is sufficient?
-			ref, err = istorage.Transport.ParseStoreReference(r.storageImageServer.GetStore(), "@"+imageID)
+			ref, err = istorage.Transport.ParseStoreReference(r.storageImageServer.GetStore(), "@"+cf.ImageID())
 			if err != nil {
 				return ContainerInfo{}, err
 			}
 		}
 	}
 	img, err := istorage.Transport.GetStoreImage(r.storageImageServer.GetStore(), ref)
+	// TODO FIXME maybe drop this case?
 	if img == nil && errors.Is(err, storage.ErrImageUnknown) && isPauseImage {
-		image := imageID
-		if imageName != "" {
-			image = imageName
+		image := cf.ImageID()
+		if cf.ImageName() != "" {
+			image = cf.ImageName()
 		}
 		if image == "" {
 			return ContainerInfo{}, ErrInvalidImageName
@@ -208,13 +238,13 @@ func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.System
 		logrus.Debugf("successfully pulled image %q", image)
 	}
 	if img == nil && errors.Is(err, storage.ErrImageUnknown) {
-		if imageID == "" {
-			return ContainerInfo{}, fmt.Errorf("image %q not present in image store", imageName)
+		if cf.ImageID() == "" {
+			return ContainerInfo{}, fmt.Errorf("image %q not present in image store", cf.ImageName())
 		}
-		if imageName == "" {
-			return ContainerInfo{}, fmt.Errorf("image with ID %q not present in image store", imageID)
+		if cf.ImageName() == "" {
+			return ContainerInfo{}, fmt.Errorf("image with ID %q not present in image store", cf.ImageID())
 		}
-		return ContainerInfo{}, fmt.Errorf("image %q with ID %q not present in image store", imageName, imageID)
+		return ContainerInfo{}, fmt.Errorf("image %q with ID %q not present in image store", cf.ImageName(), cf.ImageID())
 	}
 
 	// Pull out a copy of the image's configuration.
@@ -229,26 +259,26 @@ func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.System
 		return ContainerInfo{}, err
 	}
 
+	imageName := cf.ImageName()
 	// Update the image name and ID.
 	if imageName == "" && len(img.Names) > 0 {
 		imageName = img.Names[0]
 	}
-	imageID = img.ID
 
 	// Build metadata to store with the container.
 	metadata := RuntimeContainerMetadata{
-		Pod:           containerID == podID,
-		PodName:       podName,
-		PodID:         podID,
+		Pod:           cf.ContainerID() == cf.PodID(), // TODO FIXME maybe just make this a function?
+		PodName:       cf.PodName(),
+		PodID:         cf.PodID(),
 		ImageName:     imageName,
-		ImageID:       imageID,
-		ContainerName: containerName,
-		MetadataName:  metadataName,
-		UID:           uid,
-		Namespace:     namespace,
-		Attempt:       attempt,
+		ImageID:       img.ID,
+		ContainerName: cf.ContainerName(),
+		MetadataName:  cf.MetadataName(),
+		UID:           cf.UID(),
+		Namespace:     cf.KubeNamespace(),
+		Attempt:       cf.Attempt(),
 		CreatedAt:     time.Now().Unix(),
-		Privileged:    privileged,
+		Privileged:    cf.Privileged(),
 	}
 	mdata, err := json.Marshal(&metadata)
 	if err != nil {
@@ -262,22 +292,23 @@ func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.System
 	}
 
 	coptions := storage.ContainerOptions{
-		LabelOpts: labelOptions,
+		LabelOpts: cf.LabelOptions(),
 	}
-	if idMappingsOptions != nil {
-		coptions.IDMappingOptions = *idMappingsOptions
+	if cf.IDMappings() != nil {
+		coptions.IDMappingOptions = *cf.IDMappings()
 	}
-	container, err := r.storageImageServer.GetStore().CreateContainer(containerID, names, img.ID, "", string(mdata), &coptions)
+	container, err := r.storageImageServer.GetStore().CreateContainer(cf.ContainerID(), names, img.ID, "", string(mdata), &coptions)
 	if err != nil {
+		// TODO FIXME maybe Type()
 		if metadata.Pod {
 			logrus.Debugf("failed to create pod sandbox %s(%s): %v", metadata.PodName, metadata.PodID, err)
 		} else {
-			logrus.Debugf("failed to create container %s(%s): %v", metadata.ContainerName, containerID, err)
+			logrus.Debugf("failed to create container %s(%s): %v", metadata.ContainerName, cf.ContainerID(), err)
 		}
 		return ContainerInfo{}, err
 	}
-	if idMappingsOptions != nil {
-		*idMappingsOptions = coptions.IDMappingOptions
+	if cf.IDMappings() != nil {
+		cf.SetIDMappings(&coptions.IDMappingOptions)
 	}
 	if metadata.Pod {
 		logrus.Debugf("created pod sandbox %q", container.ID)
@@ -337,6 +368,7 @@ func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.System
 
 	metadata.MountLabel = container.MountLabel()
 
+	// TODO FIXME maybe add a setter to the interface
 	return ContainerInfo{
 		ID:           container.ID,
 		Dir:          containerDir,
@@ -345,14 +377,6 @@ func (r *runtimeService) createContainerOrPodSandbox(systemContext *types.System
 		ProcessLabel: container.ProcessLabel(),
 		MountLabel:   container.MountLabel(),
 	}, nil
-}
-
-func (r *runtimeService) CreatePodSandbox(systemContext *types.SystemContext, podName, podID, imageName, imageAuthFile, imageID, containerName, metadataName, uid, namespace string, attempt uint32, idMappingsOptions *storage.IDMappingOptions, labelOptions []string, privileged bool) (ContainerInfo, error) {
-	return r.createContainerOrPodSandbox(systemContext, podName, podID, imageName, imageAuthFile, imageID, containerName, podID, metadataName, uid, namespace, attempt, idMappingsOptions, labelOptions, true, privileged)
-}
-
-func (r *runtimeService) CreateContainer(systemContext *types.SystemContext, podName, podID, imageName, imageID, containerName, containerID, metadataName string, attempt uint32, idMappingsOptions *storage.IDMappingOptions, labelOptions []string, privileged bool) (ContainerInfo, error) {
-	return r.createContainerOrPodSandbox(systemContext, podName, podID, imageName, "", imageID, containerName, containerID, metadataName, "", "", attempt, idMappingsOptions, labelOptions, false, privileged)
 }
 
 func (r *runtimeService) deleteLayerIfMapped(imageID, layerID string) {

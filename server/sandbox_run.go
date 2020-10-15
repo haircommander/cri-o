@@ -19,32 +19,6 @@ const (
 	PodInfraCPUshares = 2
 )
 
-// privilegedSandbox returns true if the sandbox configuration
-// requires additional host privileges for the sandbox.
-func (s *Server) privilegedSandbox(req *pb.RunPodSandboxRequest) bool {
-	securityContext := req.GetConfig().GetLinux().GetSecurityContext()
-	if securityContext == nil {
-		return false
-	}
-
-	if securityContext.Privileged {
-		return true
-	}
-
-	namespaceOptions := securityContext.GetNamespaceOptions()
-	if namespaceOptions == nil {
-		return false
-	}
-
-	if namespaceOptions.GetNetwork() == pb.NamespaceMode_NODE ||
-		namespaceOptions.GetPid() == pb.NamespaceMode_NODE ||
-		namespaceOptions.GetIpc() == pb.NamespaceMode_NODE {
-		return true
-	}
-
-	return false
-}
-
 // runtimeHandler returns the runtime handler key provided by CRI if the key
 // does exist and the associated data are valid. If the key is empty, there
 // is nothing to do, and the empty key is returned. For every other case, this

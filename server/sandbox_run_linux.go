@@ -277,7 +277,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	s.updateLock.RLock()
 	defer s.updateLock.RUnlock()
 
-	sbox := sandbox.New(ctx)
+	sbox := sandbox.New(ctx, s.config.PauseImage)
 	if err := sbox.SetConfig(req.GetConfig()); err != nil {
 		return nil, errors.Wrap(err, "setting sandbox config")
 	}
@@ -286,11 +286,6 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 
 	// we need to fill in the container name, as it is not present in the request. Luckily, it is a constant.
 	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().GetLabels()), leaky.PodInfraContainerName)
-
-	kubeName := sbox.Config().GetMetadata().GetName()
-	namespace := sbox.Config().GetMetadata().GetNamespace()
-	attempt := sbox.Config().GetMetadata().GetAttempt()
-
 	if err := sbox.SetNameAndID(); err != nil {
 		return nil, errors.Wrap(err, "setting pod sandbox name and id")
 	}
@@ -325,34 +320,24 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 			s.ReleaseContainerName(containerName)
 		}
 	}()
+	sbox.SetContainerName(containerName)
 
-	var labelOptions []string
-	securityContext := sbox.Config().GetLinux().GetSecurityContext()
-	selinuxConfig := securityContext.GetSelinuxOptions()
-	if selinuxConfig != nil {
-		labelOptions = utils.GetLabelOptions(selinuxConfig)
-	}
+	//podContainer, err := s.StorageRuntimeServer().CreatePodSandbox(s.config.SystemContext,
+	//	sbox.Name(), sbox.ID(),
+	//	s.config.PauseImage,
+	//	s.config.PauseImageAuthFile,
+	//	"",
+	//	containerName,
+	//	kubeName,
+	//	sbox.Config().GetMetadata().GetUid(),
+	//	namespace,
+	//	attempt,
+	//	idMappingsOptions,
+	//	labelOptions,
+	//	privileged,
+	//)
 
-	privileged := s.privilegedSandbox(req)
-
-	podContainer, err := s.StorageRuntimeServer().CreatePodSandbox(s.config.SystemContext,
-		sbox.Name(), sbox.ID(),
-		s.config.PauseImage,
-		s.config.PauseImageAuthFile,
-		"",
-		containerName,
-		kubeName,
-		sbox.Config().GetMetadata().GetUid(),
-		namespace,
-		attempt,
-		idMappingsOptions,
-		labelOptions,
-		privileged,
-	)
-
-	mountLabel := podContainer.MountLabel
-	processLabel := podContainer.ProcessLabel
-
+	podContainer, err := s.StorageRuntimeServer().CreatePodSandbox(s.config.SystemContext, s.config.PauseImageAuthFile, sbox)
 	if errors.Is(err, storage.ErrDuplicateName) {
 		return nil, fmt.Errorf("pod sandbox with name %q already exists", sbox.Name())
 	}
@@ -367,6 +352,10 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 			}
 		}
 	}()
+
+	mountLabel := podContainer.MountLabel
+	processLabel := podContainer.ProcessLabel
+
 
 	// set log directory
 	logDir := sbox.Config().GetLogDirectory()
