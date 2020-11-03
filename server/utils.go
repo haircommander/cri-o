@@ -10,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	encconfig "github.com/containers/ocicrypt/config"
 	cryptUtils "github.com/containers/ocicrypt/utils"
 	"github.com/containers/storage/pkg/mount"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/ocicni/pkg/ocicni"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/runtime-tools/validate"
@@ -299,4 +301,27 @@ func getSourceMount(source string, mountinfos []*mount.Info) (path, optional str
 
 func isContextError(err error) bool {
 	return err == context.Canceled || err == context.DeadlineExceeded
+}
+
+func (s *Server) getResourceOrWait(ctx context.Context, name, resourceType string) (string, error) {
+	if cachedID := s.GetResourceFromCache(name); cachedID != "" {
+		log.Infof(ctx, "Found %s %s with ID %s in resource cache; using it", resourceType, name, cachedID)
+		return cachedID, nil
+	}
+	watcher := s.GetWatcherForResource(name)
+	if watcher == nil {
+		return "", errors.Errorf("error attempting to watch for %s %s: no longer found", resourceType, name)
+	}
+	log.Infof(ctx, "Could not find %s %s in cache; creation not yet finished", resourceType, name)
+	var err error
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+	case <-time.After(time.Minute * 4):
+		err = errors.Errorf("waited too long for request to timeout or %s %s to be created", resourceType, name)
+	case <-watcher:
+		err = errors.Errorf("the requested %s %s is now ready and will be provided to the kubelet on next retry", resourceType, name)
+	}
+
+	return "", errors.Wrap(err, "Kubelet may be retrying requests that are timing out in CRI-O due to system load")
 }

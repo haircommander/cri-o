@@ -24,6 +24,7 @@ type ResourceCache struct {
 type Resource struct {
 	resource     IdentifiableCreatable
 	cleanupFuncs []func()
+	watchers []chan struct{}
 }
 
 // IdentifiableCreatable are the qualities needed by the caller of the item.
@@ -52,14 +53,25 @@ func (rc *ResourceCache) AddResourceToCache(name string, resource IdentifiableCr
 	rc.Lock()
 	defer rc.Unlock()
 
-	if _, ok := rc.resources[name]; ok {
+	r, ok := rc.resources[name]
+	// if we don't already have a resource, create it
+	if !ok {
+		r = &Resource{}
+		rc.resources[name] = r
+	}
+	// make sure the resource hasn't already been added to the cache
+	if r.resource != nil || r.cleanupFuncs != nil {
 		return errors.Errorf("failed to add entry %s to ResourceCache; entry already exists", name)
 	}
-	rc.resources[name] = &Resource{
-		resource:     resource,
-		cleanupFuncs: cleanupFuncs,
-	}
+
+	r.resource = resource
+	r.cleanupFuncs = cleanupFuncs
 	go rc.cleanupResourceAfterSleep(name)
+
+	// now the resource is created, notify the watchers
+	for _, w := range r.watchers {
+		w<-struct{}{}
+	}
 	return nil
 }
 
@@ -83,6 +95,21 @@ func (rc *ResourceCache) cleanupResourceAfterSleep(name string) {
 	for _, f := range r.cleanupFuncs {
 		f()
 	}
+}
+
+func (rc *ResourceCache) GetWatcherForResource(name string) chan struct{} {
+	rc.Lock()
+	defer rc.Unlock()
+	watcher := make(chan struct{}, 1)
+	r, ok := rc.resources[name]
+	if !ok {
+		rc.resources[name] = &Resource{
+			watchers: []chan struct{}{watcher},
+		}
+		return watcher
+	}
+	r.watchers = append(r.watchers, watcher)
+	return watcher
 }
 
 // GetResourceFromCache attempts to look up a resource by its name.

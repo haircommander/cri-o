@@ -21,7 +21,7 @@ import (
 func (s *Server) networkStart(ctx context.Context, sb *sandbox.Sandbox) (podIPs []string, result cnitypes.Result, retErr error) {
 	overallStart := time.Now()
 	// give a network Start call 2 minutes, half of a RunPodSandbox request timeout limit
-	startCtx, startCancel := context.WithTimeout(ctx, 2*time.Minute)
+	startCtx, startCancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer startCancel()
 
 	if sb.HostNetwork() {
