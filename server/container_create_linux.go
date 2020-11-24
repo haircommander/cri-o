@@ -805,6 +805,14 @@ func (s *Server) createSandboxContainer(ctx context.Context, containerID, contai
 	}
 	specgen.SetProcessArgs(processArgs)
 
+	// First add any configured environment variables from crio config.
+	// They will get overridden if specified in the image or container config.
+	for _, e := range s.Config().DefaultEnv {
+		parts := strings.SplitN(e, "=", 2)
+		specgen.AddProcessEnv(parts[0], parts[1])
+	}
+
+	// Add environment variables from image the CRI configuration
 	envs := mergeEnvs(containerImageConfig, containerConfig.GetEnvs())
 	for _, e := range envs {
 		parts := strings.SplitN(e, "=", 2)

@@ -200,6 +200,9 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) (string, error) {
 	if ctx.GlobalIsSet("container-attach-socket-dir") {
 		config.ContainerAttachSocketDir = ctx.GlobalString("container-attach-socket-dir")
 	}
+	if ctx.IsSet("default-env") {
+		config.DefaultEnv = ctx.StringSlice("default-env")
+	}
 	if ctx.GlobalIsSet("container-exits-dir") {
 		config.ContainerExitsDir = ctx.GlobalString("container-exits-dir")
 	}
@@ -377,6 +380,11 @@ func getCrioFlags(defConf *libconfig.Config, systemContext *types.SystemContext)
 			Name:   "default-transport",
 			Usage:  fmt.Sprintf("default transport (default: %q)", defConf.DefaultTransport),
 			EnvVar: "CONTAINER_DEFAULT_TRANSPORT",
+		},
+		&cli.StringSliceFlag{
+			Name:   "default-env",
+			Usage:  "Additional environment variables to set for all containers",
+			EnvVar: "CONTAINER_DEFAULT_ENV",
 		},
 		// XXX: DEPRECATED
 		cli.StringFlag{

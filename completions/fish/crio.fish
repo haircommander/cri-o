@@ -10,7 +10,7 @@ function __fish_crio_no_subcommand --description 'Test if there has been any sub
 end
 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l additional-devices -r -d 'devices to add to the containers (default: [])'
-complete -c crio -n '__fish_crio_no_subcommand' -f -l apparmor-profile -r -d 'default apparmor profile name (default: "crio-default-1.16.1")'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l apparmor-profile -r -d 'default apparmor profile name (default: "crio-default-1.16.2")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l bind-mount-prefix -r -d 'specify a prefix to prepend to the source of a bind mount (default: "")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l cgroup-manager -r -d 'cgroup manager (cgroupfs or systemd) (default: "cgroupfs")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l cni-config-dir -r -d 'CNI configuration files directory (default: "/etc/cni/net.d/")'
@@ -23,6 +23,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l container-attach-socket-di
 complete -c crio -n '__fish_crio_no_subcommand' -f -l container-exits-dir -r -d 'path to directory in which container exit files are written to by conmon (default: "/var/run/crio/exits")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l ctr-stop-timeout -r -d 'the minimal amount of time in seconds to wait before issuing a timeout regarding the proper termination of the container (default: \'\x00\')'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l default-capabilities -r -d 'capabilities to add to the containers (default: ["CHOWN" "DAC_OVERRIDE" "FSETID" "FOWNER" "NET_RAW" "SETGID" "SETUID" "SETPCAP" "NET_BIND_SERVICE" "SYS_CHROOT" "KILL"])'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l default-env -r -d 'Additional environment variables to set for all containers'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l default-mounts -r -d 'add one or more default mount paths in the form host:container (deprecated) (default: [])'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l default-mounts-file -r -d 'path to default mounts file (default: "")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l default-runtime -r -d 'default OCI runtime from the runtimes config (default: "runc")'
