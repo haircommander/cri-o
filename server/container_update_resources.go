@@ -1,15 +1,11 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/cri-o/cri-o/internal/config/node"
-	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/gogo/protobuf/proto"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
-
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -19,9 +15,9 @@ func (s *Server) UpdateContainerResources(ctx context.Context, req *pb.UpdateCon
 	if err != nil {
 		return nil, err
 	}
-	state := c.State()
-	if !(state.Status == oci.ContainerStateRunning || state.Status == oci.ContainerStateCreated) {
-		return nil, fmt.Errorf("container %s is not running or created state: %s", c.ID(), state.Status)
+
+	if err := c.IsAlive(); err != nil {
+		return nil, errors.Errorf("container is not created or running: %v", err)
 	}
 
 	resources := toOCIResources(req.GetLinux())
