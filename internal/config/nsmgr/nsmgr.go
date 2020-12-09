@@ -15,10 +15,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// NamespaceManager manages the server's namespaces.
+// Specifically, it is an interface for how the server is creating namespaces.
+// and can be requested to create namespaces for a pod.
 type NamespaceManager interface {
+	// NewPodNamespaces creates new namespaces for a pod.
 	NewPodNamespaces(managedNamespaces []NSType, idMappings *idtools.IDMappings, sysctls map[string]string) ([]Namespace, error)
 }
 
+// New creates a new NamespaceManager.
 func New(namespacesDir, pinnsPath string) NamespaceManager {
 	return &namespaceManager{
 		namespacesDir: namespacesDir,
@@ -26,11 +31,15 @@ func New(namespacesDir, pinnsPath string) NamespaceManager {
 	}
 }
 
+// namespaceManager is the internal implementation for NamespaceManager.
 type namespaceManager struct {
 	namespacesDir string
 	pinnsPath     string
 }
 
+// NewPodNamespaces creates new namespaces for a pod.
+// It's responsible for running pinns and creating the Namespace objects.
+// The caller is responsible for cleaning up the namespaces by calling Namespace.Remove().
 func (mgr *namespaceManager) NewPodNamespaces(managedNamespaces []NSType, idMappings *idtools.IDMappings, sysctls map[string]string) ([]Namespace, error) {
 	if len(managedNamespaces) == 0 {
 		return []Namespace{}, nil
