@@ -3,9 +3,9 @@ package server
 import (
 	"path/filepath"
 
+	"github.com/cri-o/cri-o/internal/config/statsmgr"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
-	crioStorage "github.com/cri-o/cri-o/utils"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
@@ -40,7 +40,7 @@ func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerSt
 	var writableLayer *pb.FilesystemUsage
 	if s.ContainerServer.Config().RootConfig.Storage == "overlay" {
 		diffDir := filepath.Join(filepath.Dir(container.MountPoint()), "diff")
-		bytesUsed, inodeUsed, err := crioStorage.GetDiskUsageStats(diffDir)
+		bytesUsed, inodeUsed, err := statsmgr.GetDiskUsageStats(diffDir)
 		if err != nil {
 			log.Warnf(ctx, "unable to get disk usage for container %s， %s", container.ID(), err)
 		}

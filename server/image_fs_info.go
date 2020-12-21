@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/containers/storage"
-	crioStorage "github.com/cri-o/cri-o/utils"
+	"github.com/cri-o/cri-o/internal/config/statsmgr"
 	"golang.org/x/net/context"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
@@ -15,7 +15,7 @@ func getStorageFsInfo(store storage.Store) (*pb.FilesystemUsage, error) {
 	storageDriver := store.GraphDriverName()
 	imagesPath := path.Join(rootPath, storageDriver+"-images")
 
-	bytesUsed, inodesUsed, err := crioStorage.GetDiskUsageStats(imagesPath)
+	bytesUsed, inodesUsed, err := statsmgr.GetDiskUsageStats(imagesPath)
 	if err != nil {
 		return nil, err
 	}
