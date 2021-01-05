@@ -552,6 +552,8 @@ func (s *Server) CreateContainer(ctx context.Context, req *pb.CreateContainerReq
 		log.Warnf(ctx, "unable to write containers %s state to disk: %v", newContainer.ID(), err)
 	}
 
+	// Begin tracking the container's disk stats
+	s.config.StatsManager().AddID(newContainer.ID(), s.config.MountpointWritableLayer(newContainer.MountPoint()))
 	newContainer.SetCreated()
 
 	if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {

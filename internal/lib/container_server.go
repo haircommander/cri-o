@@ -476,6 +476,10 @@ func (c *ContainerServer) LoadContainer(id string) (retErr error) {
 	if err := c.ContainerStateToDisk(ctr); err != nil {
 		return fmt.Errorf("failed to write container state to disk %q: %v", ctr.ID(), err)
 	}
+
+	// Begin tracking the container's disk stats
+	c.config.StatsManager().AddID(ctr.ID(), c.config.MountpointWritableLayer(ctr.MountPoint()))
+
 	ctr.SetCreated()
 
 	c.AddContainer(ctr)
@@ -612,6 +616,7 @@ func (c *ContainerServer) RemoveContainer(ctr *oci.Container) {
 		return
 	}
 	sb.RemoveContainer(ctr)
+	c.config.StatsManager().RemoveID(ctr.ID())
 	c.state.containers.Delete(ctr.ID())
 }
 
