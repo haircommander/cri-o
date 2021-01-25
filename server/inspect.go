@@ -39,6 +39,7 @@ func (s *Server) getIDMappingsInfo() types.IDMappings {
 }
 
 func (s *Server) getInfo() types.CrioInfo {
+	logrus.Errorf("info called")
 	return types.CrioInfo{
 		StorageDriver:     s.config.Storage,
 		StorageRoot:       s.config.Root,
@@ -54,6 +55,7 @@ var (
 )
 
 func (s *Server) getContainerInfo(id string, getContainerFunc, getInfraContainerFunc func(id string) *oci.Container, getSandboxFunc func(id string) *sandbox.Sandbox) (types.ContainerInfo, error) {
+	logrus.Errorf("container info called for %s", id)
 	ctr := getContainerFunc(id)
 	if ctr == nil {
 		ctr = getInfraContainerFunc(id)
