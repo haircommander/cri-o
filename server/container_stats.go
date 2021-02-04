@@ -1,11 +1,8 @@
 package server
 
 import (
-	"path/filepath"
-
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
-	crioStorage "github.com/cri-o/cri-o/utils"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
@@ -36,20 +33,9 @@ func (s *Server) ContainerStats(ctx context.Context, req *pb.ContainerStatsReque
 // usage of the container.
 // This is not taken care of by the container because we access information on the server level (storage driver).
 func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerStats, container *oci.Container) *pb.ContainerStats {
-	// TODO: Fix this for other storage drivers. This will only work with overlay.
-	var writableLayer *pb.FilesystemUsage
-	if s.ContainerServer.Config().RootConfig.Storage == "overlay" {
-		diffDir := filepath.Join(filepath.Dir(container.MountPoint()), "diff")
-		bytesUsed, inodeUsed, err := crioStorage.GetDiskUsageStats(diffDir)
-		if err != nil {
-			log.Warnf(ctx, "unable to get disk usage for container %s， %s", container.ID(), err)
-		}
-		writableLayer = &pb.FilesystemUsage{
-			Timestamp:  stats.SystemNano,
-			FsId:       &pb.FilesystemIdentifier{Mountpoint: container.MountPoint()},
-			UsedBytes:  &pb.UInt64Value{Value: bytesUsed},
-			InodesUsed: &pb.UInt64Value{Value: inodeUsed},
-		}
+	writableLayer, err := s.writableLayerForContainer(stats, container)
+	if err != nil {
+		log.Warnf(ctx, "%v", err)
 	}
 	return &pb.ContainerStats{
 		Attributes: &pb.ContainerAttributes{
@@ -71,4 +57,23 @@ func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerSt
 		},
 		WritableLayer: writableLayer,
 	}
+}
+
+func (s *Server) writableLayerForContainer(stats *oci.ContainerStats, container *oci.Container) (*pb.FilesystemUsage, error) {
+	writableLayer := &pb.FilesystemUsage{
+		Timestamp: stats.SystemNano,
+		FsId:      &pb.FilesystemIdentifier{Mountpoint: container.MountPoint()},
+	}
+	driver, err := s.Store().GraphDriver()
+	if err != nil {
+		return writableLayer, errors.Wrapf(err, "unable to get graph driver for disk usage for container %s", container.ID())
+	}
+
+	usage, err := driver.ReadWriteDiskUsage(container.ID())
+	if err != nil {
+		return writableLayer, errors.Wrapf(err, "unable to get disk usage for container %s", container.ID())
+	}
+	writableLayer.UsedBytes = &pb.UInt64Value{Value: uint64(usage.Size)}
+	writableLayer.InodesUsed = &pb.UInt64Value{Value: uint64(usage.InodeCount)}
+	return writableLayer, nil
 }

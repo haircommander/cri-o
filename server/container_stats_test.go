@@ -6,6 +6,7 @@ import (
 	"github.com/cri-o/cri-o/internal/oci"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/pkg/errors"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -46,6 +47,13 @@ var _ = t.Describe("ContainerStatsList", func() {
 		It("should succeed", func() {
 			// Given
 			addContainerAndSandbox()
+			// short circuit the call to GraphDriver
+			// it only logs a warning, and we aren't testing it here
+			gomock.InOrder(
+				storeMock.EXPECT().
+					GraphDriver().
+					Return(nil, errors.New("avoid mocking graph driver")),
+			)
 			// When
 			response, err := sut.ListContainerStats(context.Background(),
 				&pb.ListContainerStatsRequest{})
