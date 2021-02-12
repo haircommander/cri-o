@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
       {"sysctl", optional_argument, NULL, 's'},
   };
 
-  while ((c = getopt_long(argc, argv, "pchuUind:f:s:", long_options, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "p:c:hu:U:i:n:d:f:s:", long_options, NULL)) != -1) {
     switch (c) {
     case 'u':
       if (!is_host_ns (optarg))
