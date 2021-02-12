@@ -1,6 +1,9 @@
 package sandbox_test
 
 import (
+	"io/ioutil"
+	"os"
+
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/pkg/sandbox"
 	. "github.com/onsi/ginkgo"
@@ -8,7 +11,43 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+const (
+	defaultDNSPath = "/etc/resolv.conf"
+	testDNSPath    = "fixtures/resolv_test.conf"
+	dnsPath        = "fixtures/resolv.conf"
+)
+
 var _ = Describe("Sandbox", func() {
+	t.Describe("ParseDNSOptions", func() {
+		testCases := []struct {
+			Servers, Searches, Options []string
+			Path                       string
+			Want                       string
+		}{
+			{
+				[]string{},
+				[]string{},
+				[]string{},
+				testDNSPath, defaultDNSPath,
+			},
+			{
+				[]string{"cri-o.io", "github.com"},
+				[]string{"192.30.253.113", "192.30.252.153"},
+				[]string{"timeout:5", "attempts:3"},
+				testDNSPath, dnsPath,
+			},
+		}
+
+		for _, c := range testCases {
+			Expect(sandbox.ParseDNSOptions(c.Servers, c.Searches, c.Options, c.Path)).To(BeNil())
+			defer os.Remove(c.Path)
+
+			expect, _ := ioutil.ReadFile(c.Want) // nolint: errcheck
+			result, _ := ioutil.ReadFile(c.Path) // nolint: errcheck
+			Expect(result).To(Equal(expect))
+		}
+	})
+
 	t.Describe("PauseCommand", func() {
 		var cfg *config.Config
 
