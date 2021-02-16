@@ -332,6 +332,13 @@ func (c *ContainerServer) LoadSandbox(id string) (retErr error) {
 				}
 			}
 		}
+		// PidNs needs to be handled differently
+		if err := sb.PidNsJoin(); err != nil {
+			// if the namespace wasn't managed, then we silently skip
+			if !errors.Is(err, sandbox.ErrNamespaceNotManaged) {
+				return err
+			}
+		}
 	}
 
 	sb.SetCreated()

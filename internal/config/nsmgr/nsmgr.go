@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	nspkg "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/cri-o/cri-o/utils"
 	"github.com/google/uuid"
@@ -142,6 +143,54 @@ func (mgr *NamespaceManager) NewPodNamespaces(cfg *PodNamespacesConfig) ([]Names
 		returnedNamespaces = append(returnedNamespaces, ns)
 	}
 	return returnedNamespaces, nil
+}
+
+// NewPIDNamespaceForPod creates a managed PID namespace.
+// It is separate from the other namespaces because pid namespaces need special handling.
+// We cannot tell the runtime: "here is your pid namespace!", because it gets created when the container is created,
+// and it would would be a bother having conmon (the parent of the container process) unshare, and then do the bind mount.
+// Instead, we mount the sandbox's PID namespace after the infra container is created,
+// and from then on refer to it for each container create
+// Thus, this should be called after the infra container has been created in the runtime.
+// This function is heavily based on containernetworking ns package found at
+// https://github.com/containernetworking/plugins/blob/5c3c17164270150467498a32c71436c7cd5501be/pkg/ns/ns.go#L140
+// Credit goes to the CNI authors
+func (mgr *NamespaceManager) NewPIDNamespaceForPod(procEntry, podID string) (_ Namespace, retErr error) {
+	// verify the procEntry we were passed is indeed a namespace
+	if err := nspkg.IsNSorErr(procEntry); err != nil {
+		return nil, err
+	}
+
+	nsPath := filepath.Join(mgr.namespaceDirForType(PIDNS), podID)
+
+	// now create an empty file
+	f, err := os.Create(nsPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating pid namespace path")
+	}
+	f.Close()
+
+	defer func() {
+		if retErr != nil {
+			if err2 := os.RemoveAll(nsPath); err != nil {
+				logrus.Errorf("failed to remove namespace path %s after failure to pin PID namespace: %v", nsPath, err2)
+			}
+		}
+	}()
+
+	// bind mount the new netns from the pidns entry onto the mount point
+	if err := unix.Mount(procEntry, nsPath, "none", unix.MS_BIND, ""); err != nil {
+		return nil, errors.Wrapf(err, "error mounting pid namespace path")
+	}
+	defer func() {
+		if retErr != nil {
+			if err := unix.Unmount(nsPath, unix.MNT_DETACH); err != nil && err != unix.EINVAL {
+				logrus.Errorf("failed umount after failed to pin pid namespace: %v", err)
+			}
+		}
+	}()
+
+	return GetNamespace(nsPath, PIDNS)
 }
 
 func chownDirToIDPair(pinPath string, rootPair idtools.IDPair) error {

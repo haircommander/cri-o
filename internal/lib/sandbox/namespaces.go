@@ -2,13 +2,17 @@ package sandbox
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+var ErrNamespaceNotManaged = errors.New("sandbox namespace not managed")
 
 // A NamespaceMode describes the intended namespace configuration for each
 // of the namespaces (Network, PID, IPC) in NamespaceOption. Runtimes should
@@ -103,6 +107,15 @@ func (s *Sandbox) AddManagedNamespaces(namespaces []nsmgr.Namespace) {
 	}
 }
 
+func (s *Sandbox) AddManagedPIDNamespace(pidns nsmgr.Namespace) (retErr error) {
+	if err := s.writePidNsLocation(pidns.Path()); err != nil {
+		return errors.Wrapf(err, "failed to write persistent location of pid")
+	}
+	s.pidns = pidns
+
+	return nil
+}
+
 // NamespacePaths returns all the paths of the namespaces of the sandbox. If a namespace is not
 // managed by the sandbox, the namespace of the infra container will be returned.
 // It returns a slice of ManagedNamespaces
@@ -135,6 +148,12 @@ func (s *Sandbox) NamespacePaths() []*ManagedNamespace {
 			nsPath: user,
 		})
 	}
+	if pid := nsPathGivenInfraPid(s.pidns, nsmgr.PIDNS, pid); pid != "" {
+		typesAndPaths = append(typesAndPaths, &ManagedNamespace{
+			nsType: nsmgr.PIDNS,
+			nsPath: pid,
+		})
+	}
 	return typesAndPaths
 }
 
@@ -161,6 +180,11 @@ func (s *Sandbox) RemoveManagedNamespaces() error {
 	}
 	if s.userns != nil {
 		if err := s.userns.Remove(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.pidns != nil {
+		if err := s.pidns.Remove(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -253,7 +277,49 @@ func (s *Sandbox) UserNsJoin(nspath string) error {
 // PidNsPath returns the path to the pid namespace of the sandbox.
 // If the sandbox uses the host namespace, the empty string is returned.
 func (s *Sandbox) PidNsPath() string {
-	return s.nsPath(nil, nsmgr.PIDNS)
+	return s.nsPath(s.pidns, nsmgr.PIDNS)
+}
+
+// Attempts to join the pid namespace, whose location is saved in the infra container's run dir.
+// If the location cannot be found (cri-o was restarted from not managing namespaces
+// to managing namespaces), an error ErrNamespaceNotManaged is returned.
+func (s *Sandbox) PidNsJoin() error {
+	path, err := s.pidNsLocation()
+	if err != nil {
+		return err
+	}
+	ns, err := nsJoin(path, nsmgr.PIDNS, s.pidns)
+	if err != nil {
+		return err
+	}
+	s.pidns = ns
+	return err
+}
+
+func (s *Sandbox) writePidNsLocation(path string) error {
+	if err := ioutil.WriteFile(s.pidNsLocationFile(), []byte(path), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Sandbox) pidNsLocation() (string, error) {
+	contents, err := ioutil.ReadFile(s.pidNsLocationFile())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", ErrNamespaceNotManaged
+		}
+		return "", err
+	}
+	return string(contents), nil
+}
+
+func (s *Sandbox) pidNsLocationFile() string {
+	infra := s.InfraContainer()
+	if infra == nil {
+		return ""
+	}
+	return filepath.Join(infra.Dir(), "pid-location")
 }
 
 // nsJoin checks if the current iface is nil, and if so gets the namespace at nsPath

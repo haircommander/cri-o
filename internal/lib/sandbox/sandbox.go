@@ -42,6 +42,7 @@ type Sandbox struct {
 	ipcns          nsmgr.Namespace
 	utsns          nsmgr.Namespace
 	userns         nsmgr.Namespace
+	pidns          nsmgr.Namespace
 	shmPath        string
 	cgroupParent   string
 	runtimeHandler string

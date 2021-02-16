@@ -951,6 +951,33 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 	sb.AddIPs(ips)
 
+	// Now the infra container has started, we can pin the pid namespace to ease
+	// the access for future containers.
+	if !container.Spoofed() {
+		// Since we haven't yet set PidNsPath, it'll be gathered based off of the infra container's PID
+		podPidnsProcEntry := sb.PidNsPath()
+		// PID must have stopped or be incorrect, report error
+		if podPidnsProcEntry == "" {
+			return nil, errors.Errorf("infra container for sandbox %s is unexpectedly gone; pid not created or stopped", sb.ID())
+		}
+		// since this is the first time the sandbox's pidns
+		// has been requested, we need to bind mount it to a new spot
+		// this will allow us to pay less attention to the infra pid for future calls
+		pidns, err := s.config.NamespaceManager().NewPIDNamespaceForPod(podPidnsProcEntry, sb.ID())
+		if err != nil {
+			return nil, errors.Wrapf(err, "create PID namespace for sandbox %s", sb.ID())
+		}
+		cleanupFuncs = append(cleanupFuncs, func() {
+			// if we fail the write, we need to clean up the mount we created
+			if err := pidns.Remove(); err != nil {
+				log.Errorf(ctx, "failed to clean up pidns after we failed to create it: %v", err)
+			}
+		})
+		if err := sb.AddManagedPIDNamespace(pidns); err != nil {
+			return nil, errors.Wrapf(err, "add PID namespace for sandbox %s", sb.ID())
+		}
+	}
+
 	if isContextError(ctx.Err()) {
 		if err := s.resourceStore.Put(sbox.Name(), sb, cleanupFuncs); err != nil {
 			log.Errorf(ctx, "runSandbox: failed to save progress of sandbox %s: %v", sbox.ID(), err)
@@ -1091,6 +1118,7 @@ func configureGeneratorGivenNamespacePaths(managedNamespaces []*libsandbox.Manag
 		nsmgr.NETNS:  spec.NetworkNamespace,
 		nsmgr.UTSNS:  spec.UTSNamespace,
 		nsmgr.USERNS: spec.UserNamespace,
+		nsmgr.PIDNS:  spec.PIDNamespace,
 	}
 
 	for _, ns := range managedNamespaces {
