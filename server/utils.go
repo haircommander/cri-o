@@ -19,10 +19,8 @@ import (
 	"github.com/cri-o/cri-o/server/cri/types"
 	"github.com/cri-o/ocicni/pkg/ocicni"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/opencontainers/runtime-tools/validate"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/syndtr/gocapability/capability"
 	"k8s.io/apimachinery/pkg/api/resource"
 	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
@@ -76,29 +74,6 @@ func (s *Server) newPodNetwork(sb *sandbox.Sandbox) (ocicni.PodNetwork, error) {
 			network: {Bandwidth: bwConfig},
 		},
 	}, nil
-}
-
-// inStringSlice checks whether a string is inside a string slice.
-// Comparison is case insensitive.
-func inStringSlice(ss []string, str string) bool {
-	for _, s := range ss {
-		if strings.EqualFold(s, str) {
-			return true
-		}
-	}
-	return false
-}
-
-// getOCICapabilitiesList returns a list of all available capabilities.
-func getOCICapabilitiesList() []string {
-	caps := make([]string, 0, len(capability.List()))
-	for _, cap := range capability.List() {
-		if cap > validate.LastCap() {
-			continue
-		}
-		caps = append(caps, "CAP_"+strings.ToUpper(cap.String()))
-	}
-	return caps
 }
 
 func validateLabels(labels map[string]string) error {

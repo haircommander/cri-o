@@ -96,6 +96,8 @@ type Container interface {
 
 	// AddUnifiedResourcesFromAnnotations adds the cgroup-v2 resources specified in the io.kubernetes.cri-o.UnifiedCgroup annotation
 	AddUnifiedResourcesFromAnnotations(annotationsMap map[string]string) error
+
+	SetupCapabilities(*types.Capability) error
 }
 
 // container is the hidden default type behind the Container interface

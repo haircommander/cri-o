@@ -458,16 +458,6 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		return nil, err
 	}
 
-	// Add capabilities from crio.conf if default_capabilities is defined
-	capabilities := &types.Capability{}
-	if s.config.DefaultCapabilities != nil {
-		g.ClearProcessCapabilities()
-		capabilities.AddCapabilities = append(capabilities.AddCapabilities, s.config.DefaultCapabilities...)
-	}
-	if err := setupCapabilities(g, capabilities); err != nil {
-		return nil, err
-	}
-
 	nsOptsJSON, err := json.Marshal(securityContext.NamespaceOptions)
 	if err != nil {
 		return nil, err

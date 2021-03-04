@@ -9,6 +9,7 @@ import (
 	"github.com/cri-o/cri-o/internal/storage"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/pkg/container"
+	"github.com/cri-o/cri-o/server/cri/types"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -51,6 +52,16 @@ func (s *sandbox) InitInfraContainer(serverConfig *libconfig.Config, podContaine
 	g.SetProcessArgs(pauseCommand)
 
 	if err := s.createResolvPath(podContainer); err != nil {
+		return err
+	}
+
+	// Add capabilities from crio.conf if default_capabilities is defined
+	capabilities := &types.Capability{}
+	if serverConfig.DefaultCapabilities != nil {
+		g.ClearProcessCapabilities()
+		capabilities.AddCapabilities = append(capabilities.AddCapabilities, serverConfig.DefaultCapabilities...)
+	}
+	if err := s.infra.SetupCapabilities(capabilities); err != nil {
 		return err
 	}
 
