@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/blang/semver"
-	"github.com/cri-o/cri-o/utils"
+	"github.com/cri-o/cri-o/utils/cmdrunner"
 	"github.com/google/renameio"
 	json "github.com/json-iterator/go"
 	"github.com/pkg/errors"
@@ -180,7 +180,7 @@ func getLinkmode() string {
 	if _, err = exec.LookPath("ldd"); err != nil {
 		return ""
 	}
-	if _, err = utils.ExecCmd("ldd", abspath); err != nil {
+	if _, err = cmdrunner.New("ldd").ExecCmd(abspath); err != nil {
 		if strings.Contains(err.Error(), "not a dynamic executable") ||
 			strings.Contains(strings.ToLower(err.Error()), "not a valid dynamic program") {
 			return "static"

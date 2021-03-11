@@ -19,18 +19,18 @@ type ConmonManager struct {
 
 // this function is heavily based on github.com/containers/common#probeConmon
 func New(conmonPath string) (*ConmonManager, error) {
-	return newWithCommandRunner(conmonPath, &cmdrunner.RealCommandRunner{})
+	return newWithCommandRunner(conmonPath, cmdrunner.New(conmonPath))
 }
 
 func newWithCommandRunner(conmonPath string, runner cmdrunner.CommandRunner) (*ConmonManager, error) {
 	if !path.IsAbs(conmonPath) {
 		return nil, errors.Errorf("conmon path is not absolute: %s", conmonPath)
 	}
-	out, err := runner.CombinedOutput(conmonPath, "--version")
+	out, err := runner.ExecCmd("--version")
 	if err != nil {
 		return nil, errors.Wrapf(err, "get conmon version")
 	}
-	fields := strings.Fields(string(out))
+	fields := strings.Fields(out)
 	if len(fields) < 3 {
 		return nil, errors.Errorf("conmon version output too short: expected three fields, got %d in %s", len(fields), out)
 	}

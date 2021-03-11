@@ -1,18 +1,15 @@
 package utils
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/containers/libpod/v2/pkg/lookup"
@@ -25,26 +22,6 @@ import (
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
 )
-
-// ExecCmd executes a command with args and returns its output as a string along
-// with an error, if any
-func ExecCmd(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", v))
-	}
-
-	err := cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("`%v %v` failed: %v %v (%v)", name, strings.Join(args, " "), stderr.String(), stdout.String(), err)
-	}
-
-	return stdout.String(), nil
-}
 
 // StatusToExitCode converts wait status code to an exit code
 func StatusToExitCode(status int) int {

@@ -19,6 +19,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/utils"
+	"github.com/cri-o/cri-o/utils/cmdrunner"
 	"github.com/fsnotify/fsnotify"
 	json "github.com/json-iterator/go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
@@ -45,8 +46,9 @@ const (
 type runtimeOCI struct {
 	*Runtime
 
-	path string
-	root string
+	path     string
+	root     string
+	rtRunner cmdrunner.CommandRunner
 }
 
 // newRuntimeOCI creates a new runtimeOCI instance
@@ -57,9 +59,10 @@ func newRuntimeOCI(r *Runtime, handler *config.RuntimeHandler) RuntimeImpl {
 	}
 
 	return &runtimeOCI{
-		Runtime: r,
-		path:    handler.RuntimePath,
-		root:    runRoot,
+		Runtime:  r,
+		path:     handler.RuntimePath,
+		root:     runRoot,
+		rtRunner: cmdrunner.NewWithEnv(handler.RuntimePath, []string{"XDG_RUNTIME_DIR"}, rootFlag, runRoot),
 	}
 }
 
@@ -246,9 +249,7 @@ func (r *runtimeOCI) StartContainer(c *Container) error {
 		return nil
 	}
 
-	if _, err := utils.ExecCmd(
-		r.path, rootFlag, r.root, "start", c.id,
-	); err != nil {
+	if _, err := r.rtRunner.ExecCmd("start", c.id); err != nil {
 		return err
 	}
 	c.state.Started = time.Now()
@@ -566,25 +567,12 @@ func (r *runtimeOCI) UpdateContainer(c *Container, res *rspec.LinuxResources) er
 	if c.Spoofed() {
 		return nil
 	}
-
-	cmd := exec.Command(r.path, rootFlag, r.root, "update", "--resources", "-", c.id) // nolint: gosec
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", v))
-	}
 	jsonResources, err := json.Marshal(res)
 	if err != nil {
 		return err
 	}
-	cmd.Stdin = bytes.NewReader(jsonResources)
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("updating resources for container %q failed: %v %v (%v)", c.id, stderr.String(), stdout.String(), err)
-	}
-	return nil
+	_, err = r.rtRunner.ExecCmdWithStdin(bytes.NewReader(jsonResources), "update", "--resources", "-", c.id)
+	return err
 }
 
 func WaitContainerStop(ctx context.Context, c *Container, timeout time.Duration, ignoreKill bool) error {
@@ -698,9 +686,7 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 	}
 
 	if timeout > 0 {
-		if _, err := utils.ExecCmd(
-			r.path, rootFlag, r.root, "kill", c.id, c.GetStopSignal(),
-		); err != nil {
+		if _, err := r.rtRunner.ExecCmd("kill", c.id, c.GetStopSignal()); err != nil {
 			checkProcessGone(c)
 		}
 		err := WaitContainerStop(ctx, c, time.Duration(timeout)*time.Second, true)
@@ -710,9 +696,7 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 		logrus.Warnf("Stopping container %v with stop signal timed out: %v", c.id, err)
 	}
 
-	if _, err := utils.ExecCmd(
-		r.path, rootFlag, r.root, "kill", c.id, "KILL",
-	); err != nil {
+	if _, err := r.rtRunner.ExecCmd("kill", c.id, "KILL"); err != nil {
 		checkProcessGone(c)
 	}
 
@@ -736,7 +720,7 @@ func (r *runtimeOCI) DeleteContainer(c *Container) error {
 		return nil
 	}
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "delete", "--force", c.id)
+	_, err := r.rtRunner.ExecCmd("delete", "--force", c.id)
 	return err
 }
 
@@ -777,11 +761,7 @@ func (r *runtimeOCI) UpdateContainerStatus(c *Container) error {
 	}
 
 	stateCmd := func() (*ContainerState, bool, error) {
-		cmd := exec.Command(r.path, rootFlag, r.root, "state", c.id) // nolint: gosec
-		if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", v))
-		}
-		out, err := cmd.Output()
+		out, err := r.rtRunner.ExecCmd("state", c.id)
 		if err != nil {
 			// there are many code paths that could lead to have a bad state in the
 			// underlying runtime.
@@ -802,7 +782,7 @@ func (r *runtimeOCI) UpdateContainerStatus(c *Container) error {
 			return nil, true, nil
 		}
 		state := *c.state
-		if err := json.NewDecoder(bytes.NewBuffer(out)).Decode(&state); err != nil {
+		if err := json.NewDecoder(bytes.NewBuffer([]byte(out))).Decode(&state); err != nil {
 			return &state, false, fmt.Errorf("failed to decode container status for %s: %s", c.id, err)
 		}
 		return &state, false, nil
@@ -884,7 +864,7 @@ func (r *runtimeOCI) PauseContainer(c *Container) error {
 		return nil
 	}
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "pause", c.id)
+	_, err := r.rtRunner.ExecCmd("pause", c.id)
 	return err
 }
 
@@ -897,7 +877,7 @@ func (r *runtimeOCI) UnpauseContainer(c *Container) error {
 		return nil
 	}
 
-	_, err := utils.ExecCmd(r.path, rootFlag, r.root, "resume", c.id)
+	_, err := r.rtRunner.ExecCmd("resume", c.id)
 	return err
 }
 
@@ -925,9 +905,7 @@ func (r *runtimeOCI) SignalContainer(c *Container, sig syscall.Signal) error {
 		return errors.Errorf("unable to find signal %s", sig.String())
 	}
 
-	_, err := utils.ExecCmd(
-		r.path, rootFlag, r.root, "kill", c.ID(), strconv.Itoa(int(sig)),
-	)
+	_, err := r.rtRunner.ExecCmd("kill", c.id, strconv.Itoa(int(sig)))
 	return err
 }
 

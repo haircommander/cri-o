@@ -6,6 +6,7 @@ package cmdrunnermock
 
 import (
 	gomock "github.com/golang/mock/gomock"
+	io "io"
 	reflect "reflect"
 )
 
@@ -32,22 +33,41 @@ func (m *MockCommandRunner) EXPECT() *MockCommandRunnerMockRecorder {
 	return m.recorder
 }
 
-// CombinedOutput mocks base method
-func (m *MockCommandRunner) CombinedOutput(arg0 string, arg1 ...string) ([]byte, error) {
+// ExecCmd mocks base method
+func (m *MockCommandRunner) ExecCmd(arg0 ...string) (string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{}
+	for _, a := range arg0 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ExecCmd", varargs...)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExecCmd indicates an expected call of ExecCmd
+func (mr *MockCommandRunnerMockRecorder) ExecCmd(arg0 ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecCmd", reflect.TypeOf((*MockCommandRunner)(nil).ExecCmd), arg0...)
+}
+
+// ExecCmdWithStdin mocks base method
+func (m *MockCommandRunner) ExecCmdWithStdin(arg0 io.Reader, arg1 ...string) (string, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{arg0}
 	for _, a := range arg1 {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "CombinedOutput", varargs...)
-	ret0, _ := ret[0].([]byte)
+	ret := m.ctrl.Call(m, "ExecCmdWithStdin", varargs...)
+	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CombinedOutput indicates an expected call of CombinedOutput
-func (mr *MockCommandRunnerMockRecorder) CombinedOutput(arg0 interface{}, arg1 ...interface{}) *gomock.Call {
+// ExecCmdWithStdin indicates an expected call of ExecCmdWithStdin
+func (mr *MockCommandRunnerMockRecorder) ExecCmdWithStdin(arg0 interface{}, arg1 ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{arg0}, arg1...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CombinedOutput", reflect.TypeOf((*MockCommandRunner)(nil).CombinedOutput), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecCmdWithStdin", reflect.TypeOf((*MockCommandRunner)(nil).ExecCmdWithStdin), varargs...)
 }
