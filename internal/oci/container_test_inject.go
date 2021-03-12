@@ -4,6 +4,10 @@
 
 package oci
 
+import (
+	runnerMock "github.com/cri-o/cri-o/test/mocks/cmdrunner"
+)
+
 // SetState sets the container state
 func (c *Container) SetState(state *ContainerState) {
 	c.state = state
@@ -21,4 +25,15 @@ func (c *Container) SetStateAndSpoofPid(state *ContainerState) {
 		state.SetInitPid(state.Pid) // nolint:errcheck
 	}
 	c.state = state
+}
+
+func (r *Runtime) MockImplForContainer(id string, runner *runnerMock.MockCommandRunner) {
+	r.runtimeImplMapMutex.Lock()
+	r.runtimeImplMap[id] = &runtimeOCI{
+		Runtime: r,
+		path:    "command",
+		root:    "runRoot",
+		runner:  runner,
+	}
+	r.runtimeImplMapMutex.Unlock()
 }
