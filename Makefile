@@ -301,6 +301,7 @@ testunit-bin:
 
 mockgen: \
 	mock-containerstorage \
+	mock-cmdrunner \
 	mock-criostorage \
 	mock-lib-config \
 	mock-oci \
