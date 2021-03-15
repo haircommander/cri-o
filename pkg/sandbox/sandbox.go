@@ -37,6 +37,9 @@ type Sandbox interface {
 	// Must be called after InitInfraContainer
 	Spec() *generate.Generator
 
+	// Infra returns the internal infra container
+	Infra() container.Container
+
 	// ResolvPath returns the sandbox's resolvPath
 	ResolvPath() string
 }
@@ -121,4 +124,8 @@ func (s *sandbox) Name() string {
 
 func (s *sandbox) ResolvPath() string {
 	return s.resolvPath
+}
+
+func (s *sandbox) Infra() container.Container {
+	return s.infra
 }

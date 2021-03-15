@@ -662,7 +662,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	sysctls := s.configureGeneratorForSysctls(ctx, g, hostNetwork, hostIPC, req.Config.Linux.Sysctls)
 
 	// set up namespaces
-	nsCleanupFuncs, err := s.configureGeneratorForSandboxNamespaces(hostNetwork, hostIPC, hostPID, sandboxIDMappings, sysctls, sb, g)
+	nsCleanupFuncs, err := s.configureGeneratorForSandboxNamespaces(sbox, sb, hostNetwork, hostIPC, hostPID, sandboxIDMappings, sysctls)
 	// We want to cleanup after ourselves if we are managing any namespaces and fail in this function.
 	cleanupFuncs = append(cleanupFuncs, func() {
 		log.Infof(ctx, "runSandbox: cleaning up namespaces after failing to run sandbox %s", sbox.ID())
@@ -975,10 +975,10 @@ func (s *Server) configureGeneratorForSysctls(ctx context.Context, g *generate.G
 // as well as whether CRI-O should be managing the namespace lifecycle.
 // it returns a slice of cleanup funcs, all of which are the respective NamespaceRemove() for the sandbox.
 // The caller should defer the cleanup funcs if there is an error, to make sure each namespace we are managing is properly cleaned up.
-func (s *Server) configureGeneratorForSandboxNamespaces(hostNetwork, hostIPC, hostPID bool, idMappings *idtools.IDMappings, sysctls map[string]string, sb *libsandbox.Sandbox, g *generate.Generator) (cleanupFuncs []func() error, retErr error) {
+func (s *Server) configureGeneratorForSandboxNamespaces(sbox sandbox.Sandbox, sb *libsandbox.Sandbox, hostNetwork, hostIPC, hostPID bool, idMappings *idtools.IDMappings, sysctls map[string]string) (cleanupFuncs []func() error, retErr error) {
 	// Since we need a process to hold open the PID namespace, CRI-O can't manage the NS lifecycle
 	if hostPID {
-		if err := g.RemoveLinuxNamespace(string(spec.PIDNamespace)); err != nil {
+		if err := sbox.Spec().RemoveLinuxNamespace(string(spec.PIDNamespace)); err != nil {
 			return nil, err
 		}
 	}
@@ -1015,36 +1015,9 @@ func (s *Server) configureGeneratorForSandboxNamespaces(hostNetwork, hostIPC, ho
 
 	cleanupFuncs = append(cleanupFuncs, sb.RemoveManagedNamespaces)
 
-	if err := configureGeneratorGivenNamespacePaths(sb.NamespacePaths(), g); err != nil {
+	if err := sbox.Infra().SpecAddNamespaces(sb.NamespacePaths()); err != nil {
 		return cleanupFuncs, err
 	}
 
 	return cleanupFuncs, nil
-}
-
-// configureGeneratorGivenNamespacePaths takes a map of nsType -> nsPath. It configures the generator
-// to add or replace the defaults to these paths
-func configureGeneratorGivenNamespacePaths(managedNamespaces []*libsandbox.ManagedNamespace, g *generate.Generator) error {
-	typeToSpec := map[nsmgr.NSType]spec.LinuxNamespaceType{
-		nsmgr.IPCNS:  spec.IPCNamespace,
-		nsmgr.NETNS:  spec.NetworkNamespace,
-		nsmgr.UTSNS:  spec.UTSNamespace,
-		nsmgr.USERNS: spec.UserNamespace,
-	}
-
-	for _, ns := range managedNamespaces {
-		// allow for empty paths, as this namespace just shouldn't be configured
-		if ns.Path() == "" {
-			continue
-		}
-		nsForSpec := typeToSpec[ns.Type()]
-		if nsForSpec == "" {
-			return errors.Errorf("Invalid namespace type %s", nsForSpec)
-		}
-		err := g.AddOrReplaceLinuxNamespace(string(nsForSpec), ns.Path())
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

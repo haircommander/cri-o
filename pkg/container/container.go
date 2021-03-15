@@ -13,8 +13,10 @@ import (
 	"github.com/containers/libpod/v2/pkg/annotations"
 	"github.com/containers/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/config/device"
+	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	libsandbox "github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
@@ -101,6 +103,9 @@ type Container interface {
 	// SpecSetProcessArgs sets the process args in the spec,
 	// given the image information and passed-in container config
 	SpecSetProcessArgs(imageOCIConfig *v1.Image) error
+
+	// SpecAddNamespaces adds the specified namespace paths
+	SpecAddNamespaces(managedNamespaces []*libsandbox.ManagedNamespace) error
 
 	// WillRunSystemd checks whether the process args
 	// are configured to be run as a systemd instance.
@@ -550,6 +555,32 @@ func (c *container) SpecSetProcessArgs(imageOCIConfig *v1.Image) error {
 	}
 
 	c.spec.SetProcessArgs(append([]string{entrypoint}, args...))
+	return nil
+}
+
+// SpecAddNamespaces adds the specified namespace paths
+func (c *container) SpecAddNamespaces(managedNamespaces []*libsandbox.ManagedNamespace) error {
+	typeToSpec := map[nsmgr.NSType]rspec.LinuxNamespaceType{
+		nsmgr.IPCNS:  rspec.IPCNamespace,
+		nsmgr.NETNS:  rspec.NetworkNamespace,
+		nsmgr.UTSNS:  rspec.UTSNamespace,
+		nsmgr.USERNS: rspec.UserNamespace,
+	}
+
+	for _, ns := range managedNamespaces {
+		// allow for empty paths, as this namespace just shouldn't be configured
+		if ns.Path() == "" {
+			continue
+		}
+		nsForSpec := typeToSpec[ns.Type()]
+		if nsForSpec == "" {
+			return errors.Errorf("Invalid namespace type %s", nsForSpec)
+		}
+		err := c.spec.AddOrReplaceLinuxNamespace(string(nsForSpec), ns.Path())
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
