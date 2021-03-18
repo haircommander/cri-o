@@ -74,7 +74,7 @@ func (s *Server) writableLayerForContainer(stats *oci.ContainerStats, container 
 	id := filepath.Base(filepath.Dir(container.MountPoint()))
 	usage, err := driver.ReadWriteDiskUsage(id)
 	if err != nil {
-		return writableLayer, errors.Wrapf(err, "unable to get disk usage for container %s", container.ID())
+		return writableLayer, errors.Wrapf(err, "unable to get disk usage for container %s mountpoint ID %s", container.ID(), id)
 	}
 	writableLayer.UsedBytes = &pb.UInt64Value{Value: uint64(usage.Size)}
 	writableLayer.InodesUsed = &pb.UInt64Value{Value: uint64(usage.InodeCount)}
