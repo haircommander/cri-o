@@ -88,77 +88,36 @@ var _ = t.Describe("Oci", func() {
 			Expect(err).To(BeNil())
 			Expect(handler).To(Equal(runtimes[defaultRuntime]))
 		})
-		It("AllowUsernsAnnotation should be true when set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowUsernsAnnotation(usernsRuntime)
+		Context("FilterDisallowedAnnotations", func() {
+			It("should succeed to filter disallowed annotation", func() {
+				// Given
+				testAnn := map[string]string{
+					annotations.DevicesAnnotation:          "/dev",
+					annotations.IRQLoadBalancingAnnotation: "true",
+				}
+				Expect(runtimes[performanceRuntime].ValidateRuntimeAllowedAnnotations()).To(BeNil())
 
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(true))
-		})
-		It("AllowUsernsAnnotation should be false when not set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowUsernsAnnotation(defaultRuntime)
+				// When
+				err := sut.FilterDisallowedAnnotations(performanceRuntime, testAnn)
 
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(false))
-		})
-		It("AllowUsernsAnnotation should be false when runtime invalid", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowUsernsAnnotation(invalidRuntime)
+				// Then
+				Expect(err).To(BeNil())
+				_, ok := testAnn[annotations.DevicesAnnotation]
+				Expect(ok).To(Equal(false))
 
-			// Then
-			Expect(err).NotTo(BeNil())
-			Expect(allowed).To(Equal(false))
-		})
-		It("AllowCPULoadBalancingAnnotation should be true when set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowCPULoadBalancingAnnotation(performanceRuntime)
+				_, ok = testAnn[annotations.IRQLoadBalancingAnnotation]
+				Expect(ok).To(Equal(true))
+			})
+			It("should fail to filter disallowed annotation of unknown runtime", func() {
+				// Given
+				testAnn := map[string]string{}
 
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(true))
-		})
-		It("AllowCPUQuotaAnnotation should be true when set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowCPUQuotaAnnotation(performanceRuntime)
+				// When
+				err := sut.FilterDisallowedAnnotations("invalid", testAnn)
 
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(true))
-		})
-		It("AllowIRQLoadBalancingAnnotation should be true when set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowIRQLoadBalancingAnnotation(performanceRuntime)
-
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(true))
-		})
-		It("AllowOCISeccompBPFHookAnnotation should be true when set", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowOCISeccompBPFHookAnnotation(performanceRuntime)
-
-			// Then
-			Expect(err).To(BeNil())
-			Expect(allowed).To(Equal(true))
-		})
-		It("AllowOCISeccompBPFHookAnnotation should be false when runtime invalid", func() {
-			// Given
-			// When
-			allowed, err := sut.AllowOCISeccompBPFHookAnnotation(invalidRuntime)
-
-			// Then
-			Expect(err).NotTo(BeNil())
-			Expect(allowed).To(Equal(false))
+				// Then
+				Expect(err).NotTo(BeNil())
+			})
 		})
 	})
 
