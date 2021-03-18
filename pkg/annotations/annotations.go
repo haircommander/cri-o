@@ -27,6 +27,9 @@ const (
 
 	// OCISeccompBPFHookAnnotation is the annotation used by the OCI seccomp BPF hook for tracing container syscalls
 	OCISeccompBPFHookAnnotation = "io.containers.trace-syscall"
+
+	// ManagementCoresAnnotation is the annotation used to configure CPU sets for a pod
+	ManagementCoresAnnotation = "io.openshift.management.cores"
 )
 
 var AllAllowedAnnotations = []string{
@@ -38,4 +41,5 @@ var AllAllowedAnnotations = []string{
 	CPUQuotaAnnotation,
 	IRQLoadBalancingAnnotation,
 	OCISeccompBPFHookAnnotation,
+	ManagementCoresAnnotation,
 }
