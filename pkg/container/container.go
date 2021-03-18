@@ -96,6 +96,8 @@ type Container interface {
 
 	// AddUnifiedResourcesFromAnnotations adds the cgroup-v2 resources specified in the io.kubernetes.cri-o.UnifiedCgroup annotation
 	AddUnifiedResourcesFromAnnotations(annotationsMap map[string]string) error
+
+	AnnotationValueForContainer(annotations map[string]string, annotation string) string
 }
 
 // container is the hidden default type behind the Container interface
@@ -148,32 +150,30 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 	// The sandbox annotations are already filtered for the allowed
 	// annotations, there is no need to check it additionally here.
 	for k, v := range sb.Annotations() {
-		if strings.HasPrefix(k, crioann.OCISeccompBPFHookAnnotation) {
-			// The OCI seccomp BPF hook
-			// (https://github.com/containers/oci-seccomp-bpf-hook)
-			// uses the annotation io.containers.trace-syscall as indicator
-			// to attach a BFP module to the process. The recorded syscalls
-			// will be then stored in the output path file (annotation
-			// value prefixed with 'of:'). We now add a custom logic to be
-			// able to distinguish containers within pods in Kubernetes. If
-			// we suffix the container name within the annotation key like
-			// this: io.containers.trace-syscall/container
-			// Then we will rewrite the key to
-			// 'io.containers.trace-syscall' if the metadata name is equal
-			// to 'container'. This allows us to trace containers into
-			// distinguishable files.
-			if strings.TrimPrefix(k, crioann.OCISeccompBPFHookAnnotation+"/") == c.config.Metadata.Name {
-				log.Debugf(ctx,
-					"Annotation key for container %q rewritten to %q (value is: %q)",
-					c.config.Metadata.Name, crioann.OCISeccompBPFHookAnnotation, v,
-				)
-				c.config.Annotations[crioann.OCISeccompBPFHookAnnotation] = v
-				c.spec.AddAnnotation(crioann.OCISeccompBPFHookAnnotation, v)
-			} else {
-				// Annotation not suffixed with the container name
-				c.spec.AddAnnotation(k, v)
-			}
-		}
+		// Annotation not suffixed with the container name
+		c.spec.AddAnnotation(k, v)
+	}
+
+	// The OCI seccomp BPF hook
+	// (https://github.com/containers/oci-seccomp-bpf-hook)
+	// uses the annotation io.containers.trace-syscall as indicator
+	// to attach a BFP module to the process. The recorded syscalls
+	// will be then stored in the output path file (annotation
+	// value prefixed with 'of:'). We now add a custom logic to be
+	// able to distinguish containers within pods in Kubernetes. If
+	// we suffix the container name within the annotation key like
+	// this: io.containers.trace-syscall/container
+	// Then we will rewrite the key to
+	// 'io.containers.trace-syscall' if the metadata name is equal
+	// to 'container'. This allows us to trace containers into
+	// distinguishable files.
+	if v := c.AnnotationValueForContainer(sb.Annotations(), crioann.OCISeccompBPFHookAnnotation); v != "" {
+		log.Debugf(ctx,
+			"Annotation key for container %q rewritten to %q (value is: %q)",
+			c.config.Metadata.Name, crioann.OCISeccompBPFHookAnnotation, v,
+		)
+		c.config.Annotations[crioann.OCISeccompBPFHookAnnotation] = v
+		c.spec.AddAnnotation(crioann.OCISeccompBPFHookAnnotation, v)
 	}
 
 	c.spec.AddAnnotation(annotations.Image, image)
@@ -504,4 +504,17 @@ func (c *container) AddUnifiedResourcesFromAnnotations(annotationsMap map[string
 	}
 
 	return nil
+}
+
+func (c *container) AnnotationValueForContainer(annotations map[string]string, annotation string) string {
+	for k, v := range annotations {
+		if c.annotationIsForContainer(k, annotation) {
+			return v
+		}
+	}
+	return ""
+}
+
+func (c *container) annotationIsForContainer(toCheck, annotation string) bool {
+	return strings.TrimPrefix(toCheck, annotation+"/") == c.config.Metadata.Name
 }
