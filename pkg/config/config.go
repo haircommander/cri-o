@@ -324,6 +324,12 @@ type RuntimeConfig struct {
 	// InfraCtrCPUSet is the CPUs set that will be used to run infra containers
 	InfraCtrCPUSet string `toml:"infra_ctr_cpuset"`
 
+	// SpecialCtrCPUSet is a way of mapping between a special container label
+	// and a container that should be given a special cpuset.
+	// A pod must be allowed to use the special annotation
+	// to be put into the cpuset.
+	SpecialCtrCPUSet map[string]string `toml:"special_ctr_cpuset"`
+
 	// seccompConfig is the internal seccomp configuration
 	seccompConfig *seccomp.Config
 
@@ -824,6 +830,14 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 	if c.InfraCtrCPUSet != "" {
 		if _, err := cpuset.Parse(c.InfraCtrCPUSet); err != nil {
 			return errors.Wrap(err, "invalid infra_ctr_cpuset")
+		}
+	}
+
+	if len(c.SpecialCtrCPUSet) != 0 {
+		for ann, set := range c.SpecialCtrCPUSet {
+			if _, err := cpuset.Parse(set); err != nil {
+				return errors.Wrapf(err, "invalid special_ctr_cpuset field: %s %s", ann, set)
+			}
 		}
 	}
 

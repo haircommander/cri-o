@@ -116,6 +116,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l seccomp-use-default-when-e
 complete -c crio -n '__fish_crio_no_subcommand' -f -l selinux -d 'Enable selinux support (default: false)'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l separate-pull-cgroup -r -d '[EXPERIMENTAL] Pull in new cgroup (default: "")'
 complete -c crio -n '__fish_crio_no_subcommand' -l signature-policy -r -d 'Path to signature policy JSON file. (default: "", to use the system-wide default)'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l special-ctr-cpuset -r -d 'A mapping between an annotation and cpuset. Containers with the specified annotation will get the specified cpuset. Annotation and cpuset are separated by \':\', multiple pairs can be specified, like \'$annoation:$cpuset,$annotation2:$cpuset2...\' (default: \'\').'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-driver -s s -r -d 'OCI storage driver (default: "")'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l storage-opt -r -d 'OCI storage driver option'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l stream-address -r -d 'Bind address for streaming socket'

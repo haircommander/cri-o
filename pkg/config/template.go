@@ -270,6 +270,13 @@ drop_infra_ctr = {{ .DropInfraCtr }}
 # To get better isolation for guaranteed pods, set this parameter to be equal to kubelet reserved-cpus.
 infra_ctr_cpuset = "{{ .InfraCtrCPUSet }}"
 
+# special_ctr_cpuset is a way of mapping between a special container label
+# and a container that should be given a special cpuset.
+# A pod must be allowed to use the special annotation to be put into the cpuset.
+# You can use linux CPU list format to specify desired CPUs.
+special_ctr_cpuset = {
+{{ range $key, $value := .SpecialCtrCPUSet }}{{ printf "\t%q: %q,\n" $key $value }}{{ end }}}
+
 # The directory where the state of the managed namespaces gets tracked.
 # Only used when manage_ns_lifecycle is true.
 namespaces_dir = "{{ .NamespacesDir }}"

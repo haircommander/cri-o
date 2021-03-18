@@ -78,6 +78,7 @@ crio
 [--selinux]
 [--separate-pull-cgroup]=[value]
 [--signature-policy]=[value]
+[--special-ctr-cpuset]=[value]
 [--storage-driver|-s]=[value]
 [--storage-opt]=[value]
 [--stream-address]=[value]
@@ -291,6 +292,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--separate-pull-cgroup**="": [EXPERIMENTAL] Pull in new cgroup (default: "")
 
 **--signature-policy**="": Path to signature policy JSON file. (default: "", to use the system-wide default)
+
+**--special-ctr-cpuset**="": A mapping between an annotation and cpuset. Containers with the specified annotation will get the specified cpuset. Annotation and cpuset are separated by ':', multiple pairs can be specified, like '$annoation:$cpuset,$annotation2:$cpuset2...' (default: '').
 
 **--storage-driver, -s**="": OCI storage driver (default: "")
 

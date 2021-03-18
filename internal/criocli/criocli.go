@@ -299,9 +299,15 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	if ctx.IsSet("separate-pull-cgroup") {
 		config.SeparatePullCgroup = ctx.String("separate-pull-cgroup")
 	}
-
 	if ctx.IsSet("infra-ctr-cpuset") {
 		config.InfraCtrCPUSet = ctx.String("infra-ctr-cpuset")
+	}
+	if ctx.IsSet("special-ctr-cpuset") {
+		specialCtrCPUSet, err := StringMapTrySplit(ctx, "special-ctr-cpuset")
+		if err != nil {
+			return err
+		}
+		config.SpecialCtrCPUSet = specialCtrCPUSet
 	}
 
 	return nil
@@ -836,6 +842,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			EnvVars: []string{"CONTAINER_INFRA_CTR_CPUSET"},
 		},
 		&cli.StringFlag{
+			Name:    "special-ctr-cpuset",
+			Usage:   "A mapping between an annotation and cpuset. Containers with the specified annotation will get the specified cpuset. Annotation and cpuset are separated by ':', multiple pairs can be specified, like '$annoation:$cpuset,$annotation2:$cpuset2...' (default: '').",
+			EnvVars: []string{"CONTAINER_MGMT_CTR_CPUSET"},
+		},
+		&cli.StringFlag{
 			Name:      "clean-shutdown-file",
 			Usage:     "Location for CRI-O to lay down the clean shutdown file. It indicates whether we've had time to sync changes to disk before shutting down. If not found, crio wipe will clear the storage directory",
 			Value:     defConf.CleanShutdownFile,
@@ -843,6 +854,28 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			TakesFile: true,
 		},
 	}
+}
+
+// StringMapTrySplit parses a map of strings to strings from the CLI context.
+// If the parsing returns just a single item, then we try to parse them by `,`
+// to allow users to provide their flags comma separated.
+// After an item is split by comma, we split by colon `:` to derive the key->value
+func StringMapTrySplit(ctx *cli.Context, name string) (map[string]string, error) {
+	const (
+		separator      = ":"
+		expectedFields = 2
+	)
+	toReturn := make(map[string]string)
+
+	splitSlice := StringSliceTrySplit(ctx, name)
+	for _, keyValue := range splitSlice {
+		fields := strings.Split(keyValue, separator)
+		if len(fields) != expectedFields {
+			return nil, errors.Errorf("invalid number of fields in string %s: Expected %d, got %d", keyValue, expectedFields, len(fields))
+		}
+		toReturn[fields[0]] = fields[1]
+	}
+	return toReturn, nil
 }
 
 // StringSliceTrySplit parses the string slice from the CLI context.
