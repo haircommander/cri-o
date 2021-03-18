@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -343,6 +344,19 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 				hugepageLimits := resources.HugepageLimits
 				for _, limit := range hugepageLimits {
 					specgen.AddLinuxResourcesHugepageLimit(limit.PageSize, limit.Limit)
+				}
+			}
+		}
+
+		for ann, cpuset := range s.config.SpecialCtrCPUSet {
+			if value, ok := sb.Annotations()[ann]; ok && value == "true" {
+				shares, err := strconv.Atoi(cpuset)
+				if err != nil {
+					return nil, errors.Wrapf(err, "processing annotation %s", ann)
+				}
+				specgen.SetLinuxResourcesCPUShares(uint64(shares))
+				if cores := ctr.AnnotationValueForContainer(sb.Annotations(), ann+".cores"); cores != "" {
+					specgen.SetLinuxResourcesCPUCpus(cores)
 				}
 			}
 		}
