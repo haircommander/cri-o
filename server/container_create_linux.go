@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -353,6 +354,20 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 					specgen.AddLinuxResourcesHugepageLimit(limit.PageSize, limit.Limit)
 				}
 			}
+		}
+
+		allowMgmtCores, err := s.Runtime().AllowManagementCoresAnnotation(sb.RuntimeHandler())
+		if err != nil {
+			return nil, errors.Wrap(err, "allow CPU set annotation")
+		}
+
+		if mgmtCore, ok := sb.Annotations()[crioann.ManagementCoresAnnotation]; ok && allowMgmtCores {
+			shares, err := strconv.Atoi(mgmtCore)
+			// ignore the error, as it may not have been configured
+			if err == nil {
+				specgen.SetLinuxResourcesCPUShares(uint64(shares))
+			}
+			specgen.SetLinuxResourcesCPUCpus(s.config.MgmtCtrCPUSet)
 		}
 
 		specgen.SetLinuxCgroupsPath(s.config.CgroupManager().ContainerCgroupPath(sb.CgroupParent(), containerID))
