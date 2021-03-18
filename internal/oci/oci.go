@@ -197,6 +197,12 @@ func (r *Runtime) AllowUsernsAnnotation(handler string) (bool, error) {
 	return r.allowAnnotation(handler, annotations.UsernsModeAnnotation)
 }
 
+// AllowManagementCoresAnnotation searches through the AllowedAnnotations for
+// the management cores annotation, checking whether this runtime allows processing of "io.kubernetes.cri-o.cpu-set"
+func (r *Runtime) AllowManagementCoresAnnotation(handler string) (bool, error) {
+	return r.allowAnnotation(handler, annotations.ManagementCoresAnnotation)
+}
+
 // AllowDevicesAnnotation searches through the AllowedAnnotations for
 // the devices annotation, checking whether this runtime allows processing of "io.kubernetes.cri-o.Devices"
 func (r *Runtime) AllowDevicesAnnotation(handler string) (bool, error) {
