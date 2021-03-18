@@ -299,9 +299,11 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	if ctx.IsSet("separate-pull-cgroup") {
 		config.SeparatePullCgroup = ctx.String("separate-pull-cgroup")
 	}
-
 	if ctx.IsSet("infra-ctr-cpuset") {
 		config.InfraCtrCPUSet = ctx.String("infra-ctr-cpuset")
+	}
+	if ctx.IsSet("mgmt-ctr-cpuset") {
+		config.MgmtCtrCPUSet = ctx.String("mgmt-ctr-cpuset")
 	}
 
 	return nil
@@ -834,6 +836,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:    "infra-ctr-cpuset",
 			Usage:   "CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers (default: '').",
 			EnvVars: []string{"CONTAINER_INFRA_CTR_CPUSET"},
+		},
+		&cli.StringFlag{
+			Name:    "mgmt-ctr-cpuset",
+			Usage:   "CPU set to run management containers, which are specified by annotation. If not specified CRI-O will use all online CPUs to run management containers (default: '').",
+			EnvVars: []string{"CONTAINER_MGMT_CTR_CPUSET"},
 		},
 		&cli.StringFlag{
 			Name:      "clean-shutdown-file",

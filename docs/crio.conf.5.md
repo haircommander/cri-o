@@ -243,6 +243,11 @@ the container runtime configuration.
     You can specify CPUs in the Linux CPU list format.
     To get better isolation for guaranteed pods, set this parameter to be equal to kubelet reserved-cpus.
 
+**mgmt_ctr_cpuset**=""
+	The CPUs set that will be used to run management containers.
+	This set will only be added if the container is given the ManagementCoresAnnotation,
+	and is in a runtime class that ManagementCoresAnnotation is allowed in.
+
 **namespaces_dir**="/var/run"
   The directory where the state of the managed namespaces gets tracked. Only used when manage_ns_lifecycle is true
 

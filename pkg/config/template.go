@@ -270,6 +270,12 @@ drop_infra_ctr = {{ .DropInfraCtr }}
 # To get better isolation for guaranteed pods, set this parameter to be equal to kubelet reserved-cpus.
 infra_ctr_cpuset = "{{ .InfraCtrCPUSet }}"
 
+# mgmt_ctr_cpuset determines what CPUs will be used to run management containers.
+# management containers are containers that are given the ManagementCoresAnnotation,
+# as well as belong to a runtime class that has ManagementCoresAnnotation as an allowed annotation.
+# You can use linux CPU list format to specify desired CPUs.
+mgmt_ctr_cpuset = "{{ .MgmtCtrCPUSet }}"
+
 # The directory where the state of the managed namespaces gets tracked.
 # Only used when manage_ns_lifecycle is true.
 namespaces_dir = "{{ .NamespacesDir }}"
