@@ -165,7 +165,7 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 	// 'io.containers.trace-syscall' if the metadata name is equal
 	// to 'container'. This allows us to trace containers into
 	// distinguishable files.
-	if v := annotationValueForContainer(sb.Annotations(), crioann.OCISeccompBPFHookAnnotation); v != "" {
+	if v := c.annotationValueForContainer(sb.Annotations(), crioann.OCISeccompBPFHookAnnotation); v != "" {
 		log.Debugf(ctx,
 			"Annotation key for container %q rewritten to %q (value is: %q)",
 			c.config.Metadata.Name, crioann.OCISeccompBPFHookAnnotation, v,
@@ -504,15 +504,15 @@ func (c *container) AddUnifiedResourcesFromAnnotations(annotationsMap map[string
 	return nil
 }
 
-func (c *container) annotationValueForContainer(annotations []string, annotation string) string {
+func (c *container) annotationValueForContainer(annotations map[string]string, annotation string) string {
 	for k, v := range annotations {
 		if c.annotationIsForContainer(k, annotation) {
-			return value
+			return v
 		}
 	}
 	return ""
 }
 
-func (c *container) annotationIsForContainer(annotation string) bool {
-	return strings.TrimPrefix(k, annotation+"/") == c.config.Metadata.Name
+func (c *container) annotationIsForContainer(toCheck, annotation string) bool {
+	return strings.TrimPrefix(toCheck, annotation+"/") == c.config.Metadata.Name
 }

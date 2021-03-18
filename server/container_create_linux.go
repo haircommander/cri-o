@@ -348,12 +348,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 			}
 		}
 
-		allowMgmtCores, err := s.Runtime().AllowManagementCoresAnnotation(sb.RuntimeHandler())
-		if err != nil {
-			return nil, errors.Wrap(err, "allow CPU set annotation")
-		}
-
-		if mgmtCore, ok := sb.Annotations()[crioann.ManagementCoresAnnotation]; ok && allowMgmtCores {
+		if mgmtCore, ok := sb.Annotations()[crioann.ManagementCoresAnnotation]; ok {
 			shares, err := strconv.Atoi(mgmtCore)
 			// ignore the error, as it may not have been configured
 			if err == nil {
