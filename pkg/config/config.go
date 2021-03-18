@@ -324,6 +324,11 @@ type RuntimeConfig struct {
 	// InfraCtrCPUSet is the CPUs set that will be used to run infra containers
 	InfraCtrCPUSet string `toml:"infra_ctr_cpuset"`
 
+	// MgmtCtrCPUSet is the CPUs set that will be used to run management containers.
+	// This set will only be added if the container is given the ManagementCoresAnnotation,
+	// and is in a runtime class that ManagementCoresAnnotation is allowed in.
+	MgmtCtrCPUSet string `toml:"mgmt_ctr_cpuset"`
+
 	// seccompConfig is the internal seccomp configuration
 	seccompConfig *seccomp.Config
 
@@ -824,6 +829,12 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 	if c.InfraCtrCPUSet != "" {
 		if _, err := cpuset.Parse(c.InfraCtrCPUSet); err != nil {
 			return errors.Wrap(err, "invalid infra_ctr_cpuset")
+		}
+	}
+
+	if c.MgmtCtrCPUSet != "" {
+		if _, err := cpuset.Parse(c.MgmtCtrCPUSet); err != nil {
+			return errors.Wrap(err, "invalid mgmt_ctr_cpuset")
 		}
 	}
 

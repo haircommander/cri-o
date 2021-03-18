@@ -59,6 +59,7 @@ crio
 [--log]=[value]
 [--metrics-port]=[value]
 [--metrics-socket]=[value]
+[--mgmt-ctr-cpuset]=[value]
 [--namespaces-dir]=[value]
 [--no-pivot]
 [--pause-command]=[value]
@@ -253,6 +254,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--metrics-port**="": Port for the metrics endpoint (default: 9090)
 
 **--metrics-socket**="": Socket for the metrics endpoint
+
+**--mgmt-ctr-cpuset**="": CPU set to run management containers, which are specified by annotation. If not specified CRI-O will use all online CPUs to run management containers (default: '').
 
 **--namespaces-dir**="": The directory where the state of the managed namespaces gets tracked. Only used when manage-ns-lifecycle is true (default: /var/run)
 

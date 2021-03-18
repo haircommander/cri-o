@@ -59,6 +59,7 @@ h
 --log-size-max
 --metrics-port
 --metrics-socket
+--mgmt-ctr-cpuset
 --namespaces-dir
 --no-pivot
 --pause-command
