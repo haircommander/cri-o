@@ -350,6 +350,18 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		delete(kubeAnnotations, ann.OCISeccompBPFHookAnnotation)
 	}
 
+	allowMgmtCores, err := s.Runtime().AllowCPUSetAnnotation(runtimeHandler)
+	if err != nil {
+		return nil, errors.Wrap(err, "allow CPU set annotation")
+	}
+	if !allowMgmtCores {
+		for k, _ := range kubeAnnotations {
+			if strings.Prefix(k, annotations.ManagementCoresAnnotation) {
+				delete(kubeAnnotations, k)
+			}
+		}
+	}
+
 	idMappingsOptions, err := s.configureSandboxIDMappings(usernsMode, sbox.Config().Linux.SecurityContext, runtimeHandler)
 	if err != nil {
 		return nil, err
