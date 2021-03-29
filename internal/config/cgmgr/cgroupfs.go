@@ -9,6 +9,12 @@ import (
 	"strings"
 
 	"github.com/containers/podman/v3/pkg/cgroups"
+	"github.com/containers/podman/v3/pkg/rootless"
+	"github.com/cri-o/cri-o/internal/config/node"
+	libctr "github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/cgroups/fs"
+	"github.com/opencontainers/runc/libcontainer/cgroups/fs2"
+	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -17,6 +23,7 @@ import (
 // CgroupfsManager defines functionality whrn **** TODO: Update this
 type CgroupfsManager struct {
 	memoryPath, memoryMaxFile string
+	libctrManager             libctr.Manager
 }
 
 const (
@@ -99,4 +106,18 @@ func (*CgroupfsManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup strin
 // CreateSandboxCgroup calls the helper function createSandboxCgroup for this manager.
 func (m *CgroupfsManager) CreateSandboxCgroup(sbParent, containerID string) error {
 	return createSandboxCgroup(sbParent, containerID, m)
+}
+
+func (m *CgroupfsManager) Apply(sbParent string, cg *cgcfgs.Cgroup) error {
+	var mgr libctr.Manager
+	if node.CgroupIsV2() {
+		var err error
+		mgr, err = fs2.NewManager(cg, sbParent, rootless.IsRootless())
+		if err != nil {
+			return err
+		}
+	} else {
+		mgr = fs.NewManager(cg, nil, rootless.IsRootless())
+	}
+	return mgr.Set(&cgcfgs.Config{Cgroups: cg})
 }
