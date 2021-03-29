@@ -12,6 +12,7 @@ import (
 
 	"github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/cri-o/cri-o/internal/config/node"
+	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -66,6 +67,8 @@ type CgroupManager interface {
 	// CreateSandboxCgroup takes the sandbox parent, and sandbox ID.
 	// It creates a new cgroup for that sandbox, which is useful when spoofing an infra container.
 	CreateSandboxCgroup(sbParent, containerID string) error
+
+	Apply(string, *cgcfgs.Cgroup) error
 }
 
 // New creates a new CgroupManager with defaults

@@ -8,10 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/containers/podman/v3/pkg/rootless"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/utils"
 	"github.com/godbus/dbus/v5"
+	libctr "github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
+	libctrsystemd "github.com/opencontainers/runc/libcontainer/cgroups/systemd"
+	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -23,6 +28,7 @@ const defaultSystemdParent = "system.slice"
 // it defines all of the common functionality between V1 and V2
 type SystemdManager struct {
 	memoryPath, memoryMaxFile string
+	libctrManager             libctr.Manager
 }
 
 // Name returns the name of the cgroup manager (systemd)
@@ -129,4 +135,15 @@ func convertCgroupFsNameToSystemd(cgroupfsName string) string {
 // CreateSandboxCgroup calls the helper function createSandboxCgroup for this manager.
 func (m *SystemdManager) CreateSandboxCgroup(sbParent, containerID string) error {
 	return createSandboxCgroup(sbParent, containerID, m)
+}
+
+func (m *SystemdManager) Apply(sbParent string, cg *cgcfgs.Cgroup) error {
+	var mgr libctr.Manager
+
+	if node.CgroupIsV2() {
+		mgr = libctrsystemd.NewUnifiedManager(cg, sbParent, rootless.IsRootless())
+	} else {
+		mgr = libctrsystemd.NewLegacyManager(cg, nil)
+	}
+	return mgr.Set(&cgcfgs.Config{Cgroups: cg})
 }
