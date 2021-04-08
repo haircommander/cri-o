@@ -3,22 +3,21 @@
 package cgmgr
 
 import (
+	"encoding/binary"
 	"fmt"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
-	"github.com/containers/podman/v3/pkg/rootless"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
-	"github.com/cri-o/cri-o/internal/config/node"
-	"github.com/cri-o/cri-o/utils"
 	"github.com/godbus/dbus/v5"
 	libctr "github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
-	libctrsystemd "github.com/opencontainers/runc/libcontainer/cgroups/systemd"
 	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/willf/bitset"
 	"golang.org/x/sys/unix"
 )
 
@@ -88,7 +87,7 @@ func (*SystemdManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup string
 		Value: dbus.MakeVariant(int(unix.SIGPIPE)),
 	}
 	logrus.Debugf("Running conmon under slice %s and unitName %s", cgroupParent, conmonUnitName)
-	if err := utils.RunUnderSystemdScope(pid, cgroupParent, conmonUnitName, killSignalProp); err != nil {
+	if err := RunUnderSystemdScope(pid, cgroupParent, conmonUnitName, killSignalProp); err != nil {
 		return "", errors.Wrapf(err, "failed to add conmon to systemd sandbox cgroup")
 	}
 	// return empty string as path because cgroup cleanup is done by systemd
@@ -138,12 +137,152 @@ func (m *SystemdManager) CreateSandboxCgroup(sbParent, containerID string) error
 }
 
 func (m *SystemdManager) Apply(sbParent string, cg *cgcfgs.Cgroup) error {
-	var mgr libctr.Manager
-
-	if node.CgroupIsV2() {
-		mgr = libctrsystemd.NewUnifiedManager(cg, sbParent, rootless.IsRootless())
-	} else {
-		mgr = libctrsystemd.NewLegacyManager(cg, nil)
+	conn, err := systemdDbus.New()
+	if err != nil {
+		return err
 	}
-	return mgr.Set(&cgcfgs.Config{Cgroups: cg})
+	properties, err := genV1ResourcesProperties(cg, conn)
+	if err != nil {
+		return err
+	}
+	return conn.SetUnitProperties(sbParent, true, properties...)
+}
+
+func genV1ResourcesProperties(c *cgcfgs.Cgroup, conn *systemdDbus.Conn) ([]systemdDbus.Property, error) {
+	var properties []systemdDbus.Property
+	r := c.Resources
+
+	if r.CpuShares != 0 {
+		properties = append(properties,
+			newProp("CPUShares", r.CpuShares))
+	}
+
+	if err := addCpuset(conn, &properties, r.CpusetCpus, r.CpusetMems); err != nil {
+		return nil, err
+	}
+
+	return properties, nil
+}
+
+func addCpuset(conn *systemdDbus.Conn, props *[]systemdDbus.Property, cpus, mems string) error {
+	if cpus == "" && mems == "" {
+		return nil
+	}
+
+	// TODO FIXME reimplement this
+	// systemd only supports AllowedCPUs/AllowedMemoryNodes since v244
+	//sdVer := systemdVersion(conn)
+	//if sdVer < 244 {
+	//	logrus.Debugf("systemd v%d is too old to support AllowedCPUs/AllowedMemoryNodes"+
+	//		" (settings will still be applied to cgroupfs)", sdVer)
+	//	return nil
+	//}
+
+	if cpus != "" {
+		bits, err := rangeToBits(cpus)
+		if err != nil {
+			return fmt.Errorf("resources.CPU.Cpus=%q conversion error: %w",
+				cpus, err)
+		}
+		*props = append(*props,
+			newProp("AllowedCPUs", bits))
+	}
+	if mems != "" {
+		bits, err := rangeToBits(mems)
+		if err != nil {
+			return fmt.Errorf("resources.CPU.Mems=%q conversion error: %w",
+				mems, err)
+		}
+		*props = append(*props,
+			newProp("AllowedMemoryNodes", bits))
+	}
+	return nil
+}
+
+func rangeToBits(str string) ([]byte, error) {
+	bits := &bitset.BitSet{}
+
+	for _, r := range strings.Split(str, ",") {
+		// allow extra spaces around
+		r = strings.TrimSpace(r)
+		// allow empty elements (extra commas)
+		if r == "" {
+			continue
+		}
+		ranges := strings.SplitN(r, "-", 2)
+		if len(ranges) > 1 {
+			start, err := strconv.ParseUint(ranges[0], 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			end, err := strconv.ParseUint(ranges[1], 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			if start > end {
+				return nil, errors.New("invalid range: " + r)
+			}
+			for i := uint(start); i <= uint(end); i++ {
+				bits.Set(i)
+			}
+		} else {
+			val, err := strconv.ParseUint(ranges[0], 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			bits.Set(uint(val))
+		}
+	}
+
+	val := bits.Bytes()
+	if len(val) == 0 {
+		// do not allow empty values
+		return nil, errors.New("empty value")
+	}
+	ret := make([]byte, len(val)*8)
+	for i := range val {
+		// bitset uses BigEndian internally
+		binary.BigEndian.PutUint64(ret[i*8:], val[len(val)-1-i])
+	}
+	// remove upper all-zero bytes
+	for ret[0] == 0 {
+		ret = ret[1:]
+	}
+
+	return ret, nil
+}
+
+// RunUnderSystemdScope adds the specified pid to a systemd scope
+func RunUnderSystemdScope(pid int, slice, unitName string, properties ...systemdDbus.Property) error {
+	conn, err := systemdDbus.New()
+	if err != nil {
+		return err
+	}
+	defaultProperties := []systemdDbus.Property{
+		newProp("PIDs", []uint32{uint32(pid)}),
+		newProp("Delegate", true),
+		newProp("DefaultDependencies", false),
+	}
+	properties = append(defaultProperties, properties...)
+	if slice != "" {
+		properties = append(properties, systemdDbus.PropSlice(slice))
+	}
+	ch := make(chan string)
+	_, err = conn.StartTransientUnit(unitName, "replace", properties, ch)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	// Block until job is started
+	<-ch
+
+	return nil
+}
+
+func newProp(name string, units interface{}) systemdDbus.Property {
+	return systemdDbus.Property{
+		Name:  name,
+		Value: dbus.MakeVariant(units),
+	}
 }

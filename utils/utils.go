@@ -21,9 +21,6 @@ import (
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
-	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
-	"github.com/godbus/dbus/v5"
 )
 
 // ExecCmd executes a command with args and returns its output as a string along
@@ -49,41 +46,6 @@ func ExecCmd(name string, args ...string) (string, error) {
 // StatusToExitCode converts wait status code to an exit code
 func StatusToExitCode(status int) int {
 	return ((status) & 0xff00) >> 8
-}
-
-// RunUnderSystemdScope adds the specified pid to a systemd scope
-func RunUnderSystemdScope(pid int, slice, unitName string, properties ...systemdDbus.Property) error {
-	conn, err := systemdDbus.New()
-	if err != nil {
-		return err
-	}
-	defaultProperties := []systemdDbus.Property{
-		newProp("PIDs", []uint32{uint32(pid)}),
-		newProp("Delegate", true),
-		newProp("DefaultDependencies", false),
-	}
-	properties = append(defaultProperties, properties...)
-	if slice != "" {
-		properties = append(properties, systemdDbus.PropSlice(slice))
-	}
-	ch := make(chan string)
-	_, err = conn.StartTransientUnit(unitName, "replace", properties, ch)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	// Block until job is started
-	<-ch
-
-	return nil
-}
-
-func newProp(name string, units interface{}) systemdDbus.Property {
-	return systemdDbus.Property{
-		Name:  name,
-		Value: dbus.MakeVariant(units),
-	}
 }
 
 // DetachError is special error which returned in case of container detach.

@@ -61,6 +61,7 @@ function check_cpu_fields() {
 	ctr_id=$(crictl run "$ctrconfig" "$sboxconfig")
 
 	check_cpu_fields "$ctr_id" "$shares" "$set"
+exit 1
 }
 
 @test "test workload can override defaults" {

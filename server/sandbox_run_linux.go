@@ -299,6 +299,9 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		}
 		resourceCleaner.Cleanup()
 	}()
+	resourceCleaner.Add(func() {
+		log.Infof(ctx, "%v", retErr)
+	})
 
 	if _, err := s.ReservePodName(sbox.ID(), sbox.Name()); err != nil {
 		cachedID, resourceErr := s.getResourceOrWait(ctx, sbox.Name(), "sandbox")
@@ -809,15 +812,18 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		return nil, err
 	}
 
-	// A container is kernel separated if we're using shimv2, or we're using a kata v1 binary
-	podIsKernelSeparated := runtimeType == libconfig.RuntimeTypeVM ||
-		strings.Contains(strings.ToLower(runtimeHandler), "kata") ||
-		(runtimeHandler == "" && strings.Contains(strings.ToLower(s.config.DefaultRuntime), "kata"))
+	if err := s.config.CgroupManager().CreateSandboxCgroup(cgroupParent, sbox.ID()); err != nil {
+		return nil, errors.Wrapf(err, "create dropped infra %s cgroup", sbox.ID())
+	}
 
 	if err := s.config.Workloads.MutateCgroupGivenAnnotations(s.config.CgroupManager(), cgroupParent, sb.Annotations()); err != nil {
 		return nil, err
 	}
 
+	// A container is kernel separated if we're using shimv2, or we're using a kata v1 binary
+	podIsKernelSeparated := runtimeType == libconfig.RuntimeTypeVM ||
+		strings.Contains(strings.ToLower(runtimeHandler), "kata") ||
+		(runtimeHandler == "" && strings.Contains(strings.ToLower(s.config.DefaultRuntime), "kata"))
 	var container *oci.Container
 	// In the case of kernel separated containers, we need the infra container to create the VM for the pod
 	if sb.NeedsInfra(s.config.DropInfraCtr) || podIsKernelSeparated {
@@ -843,9 +849,6 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		log.Debugf(ctx, "dropping infra container for pod %s", sbox.ID())
 		container = oci.NewSpoofedContainer(sbox.ID(), containerName, labels, sbox.ID(), created, podContainer.RunDir)
 		g.AddAnnotation(ann.SpoofedContainer, "true")
-		if err := s.config.CgroupManager().CreateSandboxCgroup(cgroupParent, sbox.ID()); err != nil {
-			return nil, errors.Wrapf(err, "create dropped infra %s cgroup", sbox.ID())
-		}
 	}
 	// needed for getSandboxIDMappings()
 	container.SetIDMappings(sandboxIDMappings)

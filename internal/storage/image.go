@@ -25,8 +25,8 @@ import (
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/reexec"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
+	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/config/node"
-	"github.com/cri-o/cri-o/utils"
 	"github.com/godbus/dbus/v5"
 	json "github.com/json-iterator/go"
 	digest "github.com/opencontainers/go-digest"
@@ -443,7 +443,7 @@ func moveSelfToCgroup(cgroup string, hasCollectMode bool) error {
 				Value: dbus.MakeVariant("inactive-or-failed"),
 			})
 	}
-	return utils.RunUnderSystemdScope(os.Getpid(), slice, unitName, systemdProperties...)
+	return cgmgr.RunUnderSystemdScope(os.Getpid(), slice, unitName, systemdProperties...)
 }
 
 func copyImageChild() {

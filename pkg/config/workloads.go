@@ -89,6 +89,12 @@ func (w Workloads) MutateCgroupGivenAnnotations(mgr cgmgr.CgroupManager, sbParen
 	if workload == nil {
 		return nil
 	}
+
+	cgroup := &cgcfgs.Cgroup{
+		Path:      sbParent,
+		Resources: &cgcfgs.Resources{},
+	}
+
 	for resource, defaultValue := range workload.Resources {
 		value := valueFromAnnotation(resource, defaultValue, workload.AnnotationPrefix, "POD", sboxAnnotations)
 		if value == "" {
@@ -100,12 +106,12 @@ func (w Workloads) MutateCgroupGivenAnnotations(mgr cgmgr.CgroupManager, sbParen
 			// CRI-O bug
 			panic(errors.Errorf("resource %s is not defined", resource))
 		}
-
-		if err := m.MutateCgroup(mgr, sbParent, value); err != nil {
+		if err := m.MutateCgroup(cgroup, value); err != nil {
 			return errors.Wrapf(err, "mutating spec given workload %s", workload.ActivationAnnotation)
 		}
 	}
-	return nil
+
+	return mgr.Apply(sbParent, cgroup)
 }
 
 func (w Workloads) workloadGivenActivationAnnotation(sboxAnnotations map[string]string) *WorkloadConfig {
@@ -136,7 +142,7 @@ var mutators = map[string]Mutator{
 type Mutator interface {
 	ValidateDefault(string) error
 	MutateSpec(*generate.Generator, string) error
-	MutateCgroup(mgr cgmgr.CgroupManager, sbParent, configuredValue string) error
+	MutateCgroup(cgroup *cgcfgs.Cgroup, configuredValue string) error
 }
 
 type cpusetMutator struct{}
@@ -154,16 +160,14 @@ func (*cpusetMutator) MutateSpec(specgen *generate.Generator, configuredValue st
 	return nil
 }
 
-func (*cpusetMutator) MutateCgroup(mgr cgmgr.CgroupManager, sbParent, configuredValue string) error {
-	cgroup := &cgcfgs.Cgroup{
-		Path: sbParent,
-		Resources: &cgcfgs.Resources{
-			CpusetCpus: configuredValue,
-		},
+func (*cpusetMutator) MutateCgroup(cgroup *cgcfgs.Cgroup, configuredValue string) error {
+	if cgroup == nil {
+		cgroup = &cgcfgs.Cgroup{}
 	}
-	if err := mgr.Apply(sbParent, cgroup); err != nil {
-		return err
+	if cgroup.Resources == nil {
+		cgroup.Resources = &cgcfgs.Resources{}
 	}
+	cgroup.Resources.CpusetCpus = configuredValue
 	return nil
 }
 
@@ -188,20 +192,18 @@ func (*cpuShareMutator) MutateSpec(specgen *generate.Generator, configuredValue 
 	return nil
 }
 
-func (*cpuShareMutator) MutateCgroup(mgr cgmgr.CgroupManager, sbParent, configuredValue string) error {
+func (*cpuShareMutator) MutateCgroup(cgroup *cgcfgs.Cgroup, configuredValue string) error {
 	u, err := strconv.ParseUint(configuredValue, 0, 64)
 	if err != nil {
 		return err
 	}
+	if cgroup == nil {
+		cgroup = &cgcfgs.Cgroup{}
+	}
+	if cgroup.Resources == nil {
+		cgroup.Resources = &cgcfgs.Resources{}
+	}
+	cgroup.Resources.CpuShares = u
 
-	cgroup := &cgcfgs.Cgroup{
-		Path: sbParent,
-		Resources: &cgcfgs.Resources{
-			CpuShares: u,
-		},
-	}
-	if err := mgr.Apply(sbParent, cgroup); err != nil {
-		return err
-	}
 	return nil
 }
