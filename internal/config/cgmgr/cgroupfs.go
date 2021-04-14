@@ -79,6 +79,7 @@ func (*CgroupfsManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup strin
 	if conmonCgroup != "pod" && conmonCgroup != "" {
 		return "", errors.Errorf("conmon cgroup %s invalid for cgroupfs", conmonCgroup)
 	}
+	logrus.Infof("hi %s %s %s", cid, cgroupParent, conmonCgroup)
 
 	cgroupPath := fmt.Sprintf("%s/crio-conmon-%s", cgroupParent, cid)
 	control, err := cgroups.New(cgroupPath, &rspec.LinuxResources{})
@@ -123,6 +124,7 @@ func (m *CgroupfsManager) Apply(sbParent string, cg *cgcfgs.Cgroup) error {
 		"freezer": filepath.Join("/sys/fs/cgroup", "freezer", sbParent),
 		"devices": filepath.Join("/sys/fs/cgroup", "devices", sbParent),
 	}
+	logrus.Infof("hi %s", sbParent)
 
 	// We need to white list all devices
 	// so containers created underneath won't fail

@@ -3,6 +3,7 @@
 load helpers
 
 function setup() {
+	export CONTAINER_CONMON_CGROUP=pod CONTAINER_CGROUP_MANAGER=cgroupfs
 	export activation="workload.openshift.io/management"
 	export prefix="io.openshift.workload.management"
 	setup_test
@@ -31,10 +32,9 @@ EOF
 }
 
 function setup_pod_tests() {
+	tmp_cg=$(tr -cd 'a-f0-9' < /dev/urandom | head -c 10)
 	if [[ "$CONTAINER_CGROUP_MANAGER" == "cgroupfs" ]]; then
 		command -v cgcreate &> /dev/null
-		declare tmp_cg
-		tmp_cg=$(tr -cd 'a-f0-9' < /dev/urandom | head -c 10)
 		for controller in cpu cpuset devices; do
 			mkdir "/sys/fs/cgroup/$controller/$tmp_cg"
 		done
@@ -78,6 +78,9 @@ function check_pod_fields() {
 
 	cpuset_file="/sys/fs/cgroup/cpuset/$pod_cgroup_path/cpuset.cpus"
 	cpushares_file="/sys/fs/cgroup/cpu/$pod_cgroup_path/cpu.shares"
+	
+	cat $cpuset_file $cpushares_file >&3
+	echo $cpuset $cpushares >&3
 
 	if [ -z "$cpushares" ]; then
 		# this check assumes we're configuring cpushares to something different than the default
@@ -107,6 +110,10 @@ function check_pod_fields() {
 		"$TESTDATA"/container_sleep.json > "$ctrconfig"
 
 	ctr_id=$(crictl run "$ctrconfig" "$sboxconfig")
+
+	pod_cgroup_parent=$(jq -r .linux.cgroup_parent < "$sboxconfig")
+
+	check_pod_fields "$pod_cgroup_parent" "$shares" "$set"
 
 	check_ctr_fields "$ctr_id" "$shares" "$set"
 }
@@ -197,8 +204,9 @@ function check_pod_fields() {
 
 	pod_cgroup_parent=$(jq -r .linux.cgroup_parent < "$sboxconfig")
 
-	crictl runp "$sboxconfig"
+	pod_id=$(crictl runp "$sboxconfig")
 
+	check_pod_fields "crio-conmon-$pod_id.scope" "$shares" "$set"
 	check_pod_fields "$pod_cgroup_parent" "$shares" "$set"
 }
 

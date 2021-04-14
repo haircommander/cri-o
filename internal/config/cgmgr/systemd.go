@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	podcgroup "github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/containers/podman/v3/pkg/rootless"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/cri-o/cri-o/internal/config/node"
@@ -77,7 +78,16 @@ func (*SystemdManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup string
 	if strings.HasSuffix(conmonCgroup, ".slice") {
 		cgroupParent = conmonCgroup
 	}
+
+	parentPath, err := systemd.ExpandSlice(cgroupParent)
+	if err != nil {
+		return "", err
+	}
+
 	conmonUnitName := fmt.Sprintf("crio-conmon-%s.scope", cid)
+	if _, err := podcgroup.New(filepath.Join(parentPath, conmonUnitName), nil); err != nil {
+		return "", err
+	}
 
 	// Set the systemd KillSignal to SIGPIPE that conmon ignores.
 	// This helps during node shutdown so that conmon waits for the container
@@ -86,6 +96,7 @@ func (*SystemdManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup string
 		Name:  "KillSignal",
 		Value: dbus.MakeVariant(int(unix.SIGPIPE)),
 	}
+
 	logrus.Debugf("Running conmon under slice %s and unitName %s", cgroupParent, conmonUnitName)
 	if err := utils.RunUnderSystemdScope(pid, cgroupParent, conmonUnitName, killSignalProp, systemdDbus.PropAfter("crio.service")); err != nil {
 		return "", errors.Wrapf(err, "failed to add conmon to systemd sandbox cgroup")

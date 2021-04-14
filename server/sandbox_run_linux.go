@@ -814,6 +814,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		strings.Contains(strings.ToLower(runtimeHandler), "kata") ||
 		(runtimeHandler == "" && strings.Contains(strings.ToLower(s.config.DefaultRuntime), "kata"))
 
+	log.Infof(ctx, "parent: %s %s", cgroupParent, cgroupPath)
 	if err := s.config.Workloads.MutateCgroupGivenAnnotations(s.config.CgroupManager(), cgroupParent, sb.Annotations()); err != nil {
 		return nil, err
 	}
