@@ -404,6 +404,10 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		return nil, err
 	}
 
+	if err := s.config.Workloads.MutateSpecGivenAnnotations(sbox.Config().Metadata.Name, sbox.Spec(), sbox.Config().Annotations); err != nil {
+		return nil, err
+	}
+
 	g := sbox.Spec()
 
 	// set DNS options
