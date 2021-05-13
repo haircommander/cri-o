@@ -234,10 +234,10 @@ func (s *Server) restore(ctx context.Context) []string {
 			delete(containersAndTheirImages, containerID)
 			continue
 		}
-		log.Warnf(ctx, "could not restore container %s: %v", containerID, err)
+		log.Warnf(ctx, "Could not restore container %s: %v", containerID, err)
 		for _, n := range names[containerID] {
 			if err := s.Store().DeleteContainer(n); err != nil && err != storageTypes.ErrNotAContainer {
-				log.Warnf(ctx, "unable to delete container %s: %v", n, err)
+				log.Warnf(ctx, "Unable to delete container %s: %v", n, err)
 			}
 			// Release the container name
 			s.ReleaseContainerName(n)
@@ -249,15 +249,15 @@ func (s *Server) restore(ctx context.Context) []string {
 		cleanupFunc := func() error {
 			err := s.networkStop(context.Background(), sb)
 			if err == nil {
-				log.Infof(ctx, "successfully cleaned up network for pod %s", sb.ID())
+				log.Infof(ctx, "Successfully cleaned up network for pod %s", sb.ID())
 			}
 			return err
 		}
 		// Clean up networking if pod couldn't be restored and was deleted
-		log.Infof(ctx, "deleting pod %s", sb.ID())
+		log.Infof(ctx, "Deleting network for pod %s", sb.ID())
 		if err := cleanupFunc(); err != nil {
-			log.Warnf(ctx, "error stopping network on restore cleanup (will retry) %v:", err)
-			wipeResourceCleaner.Add(ctx, "cleanup sandbox network", cleanupFunc)
+			log.Warnf(ctx, "Error stopping network on restore cleanup (will retry) %v:", err)
+			wipeResourceCleaner.Add(ctx, "Cleanup sandbox network", cleanupFunc)
 		}
 	}
 
