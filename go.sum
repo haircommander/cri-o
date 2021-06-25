@@ -715,6 +715,8 @@ github.com/grpc-ecosystem/go-grpc-middleware v1.3.0/go.mod h1:z0ButlSOZa5vEBq9m2
 github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0/go.mod h1:8NvIoxWQoOIhqOTXgfV/d3M/q6VIi02HzZEHgUlZvzk=
 github.com/grpc-ecosystem/grpc-gateway v1.9.0/go.mod h1:vNeuVxBJEsws4ogUvrchl83t/GYV9WGTSLVdBhOQFDY=
 github.com/grpc-ecosystem/grpc-gateway v1.9.5/go.mod h1:vNeuVxBJEsws4ogUvrchl83t/GYV9WGTSLVdBhOQFDY=
+github.com/haircommander/kubernetes/staging/src/k8s.io/cri-api v0.0.0-20210625164030-ded603213bfd h1:yErZpDHl7ipf21S3G+1zpamzlUeE7su7C1TvceTRv6s=
+github.com/haircommander/kubernetes/staging/src/k8s.io/cri-api v0.0.0-20210625164030-ded603213bfd/go.mod h1:PLhhGBC2WLHjxpoGKtUMjMs2GQQM2Q+ws4X6uq7V/kA=
 github.com/hashicorp/consul/api v1.1.0/go.mod h1:VmuI/Lkw1nC05EYQWNKwWGbkg+FbDBtguAZLlVdkD9Q=
 github.com/hashicorp/consul/sdk v0.1.1/go.mod h1:VKf9jXwCTEY1QZP2MOLRhb5i/I/ssyNV1vwHyQBF0x8=
 github.com/hashicorp/errwrap v0.0.0-20141028054710-7554cd9344ce/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
@@ -1600,8 +1602,9 @@ golang.org/x/sys v0.0.0-20210426230700-d19ff857e887/go.mod h1:h1NjWce9XRLGQEsW7w
 golang.org/x/sys v0.0.0-20210503080704-8803ae5d1324/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
-golang.org/x/sys v0.0.0-20210603125802-9665404d3644 h1:CA1DEQ4NdKphKeL70tvsWNdT5oFh1lOjihRcEDROi0I=
 golang.org/x/sys v0.0.0-20210603125802-9665404d3644/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20210616094352-59db8d763f22 h1:RqytpXGR1iVNX7psjB3ff8y7sNFinVFvkx1c8SjBkio=
+golang.org/x/sys v0.0.0-20210616094352-59db8d763f22/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.0.0-20201113234701-d7a72108b828/go.mod h1:Nr5EML6q2oocZ2LXRh80K7BxOlk5/8JxuGnuhpl+muw=
 golang.org/x/term v0.0.0-20201117132131-f5c789dd3221/go.mod h1:Nr5EML6q2oocZ2LXRh80K7BxOlk5/8JxuGnuhpl+muw=
 golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
@@ -1883,8 +1886,6 @@ k8s.io/kubernetes/staging/src/k8s.io/component-base v0.0.0-20210408162405-cb303e
 k8s.io/kubernetes/staging/src/k8s.io/component-helpers v0.0.0-20210408162405-cb303e613a12 h1:1VqmpN0wBZwhwRk+21gqvdCaMWDvluw5W7YuokgPXkk=
 k8s.io/kubernetes/staging/src/k8s.io/component-helpers v0.0.0-20210408162405-cb303e613a12/go.mod h1:W/TBpRMx7t6+ZimgebLr7be4Pfb7JvWpeer+kPlA6eI=
 k8s.io/kubernetes/staging/src/k8s.io/controller-manager v0.0.0-20210408162405-cb303e613a12/go.mod h1:SnaQa8bOBayBORIZwicYBm9QrlwUPi2PKlMQOhI6HAU=
-k8s.io/kubernetes/staging/src/k8s.io/cri-api v0.0.0-20210408162405-cb303e613a12 h1:L4AD2bl+lK/w74+5LEedDg7ms37hy4C5Psuj3rh+obY=
-k8s.io/kubernetes/staging/src/k8s.io/cri-api v0.0.0-20210408162405-cb303e613a12/go.mod h1:9zdUgM3lMAO5+g35Vyq3OQdMrylvtV97G7t5emDYCOs=
 k8s.io/kubernetes/staging/src/k8s.io/csi-translation-lib v0.0.0-20210408162405-cb303e613a12/go.mod h1:NmtKDopOnphD2IlcH9OjoxoI4mEkkgGhVw7dTbdBTY0=
 k8s.io/kubernetes/staging/src/k8s.io/kube-aggregator v0.0.0-20210408162405-cb303e613a12/go.mod h1:KhCAvsyM1iGJLSql7cTjBXwRzigyfTwRcu1unidRJmo=
 k8s.io/kubernetes/staging/src/k8s.io/kube-controller-manager v0.0.0-20210408162405-cb303e613a12/go.mod h1:46iKO45TZat/zvPyqe8TjLLrTS/U/nGB92Ft63PEPF0=
