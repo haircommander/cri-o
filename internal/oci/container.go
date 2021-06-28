@@ -15,13 +15,14 @@ import (
 	"github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/containers/storage/pkg/idtools"
 	ann "github.com/cri-o/cri-o/pkg/annotations"
+	"github.com/cri-o/cri-o/server/cri/types"
 	json "github.com/json-iterator/go"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/kubernetes/pkg/kubelet/types"
+	ktypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 const (
@@ -63,7 +64,7 @@ type Container struct {
 	annotations        fields.Set
 	crioAnnotations    fields.Set
 	state              *ContainerState
-	metadata           *Metadata
+	metadata           *types.ContainerMetadata
 	opLock             sync.RWMutex
 	spec               *specs.Spec
 	idMappings         *idtools.IDMappings
@@ -78,15 +79,13 @@ type Container struct {
 	stopLock           sync.Mutex
 }
 
-// Metadata holds all necessary information for building the container name.
-// The container runtime is encouraged to expose the metadata in its user
-// interface for better user experience.
-type Metadata struct {
-	// Name of the container.
-	Name string `json:"name,omitempty"`
-
-	// Attempt number of creating the container.
-	Attempt uint32 `json:"attempt,omitempty"`
+func (c *Container) CRIAttributes() *types.ContainerAttributes {
+	return &types.ContainerAttributes{
+		ID:          c.ID(),
+		Metadata:    c.Metadata(),
+		Labels:      c.Labels(),
+		Annotations: c.Annotations(),
+	}
 }
 
 // ContainerVolume is a bind mount for the container.
@@ -113,7 +112,7 @@ type ContainerState struct {
 }
 
 // NewContainer creates a container object.
-func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations, annotations map[string]string, image, imageName, imageRef string, metadata *Metadata, sandbox string, terminal, stdin, stdinOnce bool, runtimeHandler, dir string, created time.Time, stopSignal string) (*Container, error) {
+func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations, annotations map[string]string, image, imageName, imageRef string, metadata *types.ContainerMetadata, sandbox string, terminal, stdin, stdinOnce bool, runtimeHandler, dir string, created time.Time, stopSignal string) (*Container, error) {
 	state := &ContainerState{}
 	state.Created = created
 	c := &Container{
@@ -354,7 +353,7 @@ func (c *Container) Dir() string {
 }
 
 // Metadata returns the metadata of the container.
-func (c *Container) Metadata() *Metadata {
+func (c *Container) Metadata() *types.ContainerMetadata {
 	return c.metadata
 }
 
@@ -423,7 +422,7 @@ func (c *Container) SetStartFailed(err error) {
 
 // Description returns a description for the container
 func (c *Container) Description() string {
-	return fmt.Sprintf("%s/%s/%s", c.Labels()[types.KubernetesPodNamespaceLabel], c.Labels()[types.KubernetesPodNameLabel], c.Labels()[types.KubernetesContainerNameLabel])
+	return fmt.Sprintf("%s/%s/%s", c.Labels()[ktypes.KubernetesPodNamespaceLabel], c.Labels()[ktypes.KubernetesPodNameLabel], c.Labels()[ktypes.KubernetesContainerNameLabel])
 }
 
 // StdinOnce returns whether stdin once is set for the container.

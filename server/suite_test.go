@@ -16,6 +16,7 @@ import (
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/server"
+	"github.com/cri-o/cri-o/server/cri/types"
 	. "github.com/cri-o/cri-o/test/framework"
 	imagetypesmock "github.com/cri-o/cri-o/test/mocks/containers/image/v5"
 	containerstoragemock "github.com/cri-o/cri-o/test/mocks/containerstorage"
@@ -162,7 +163,7 @@ var beforeEach = func() {
 	testContainer, err = oci.NewContainer(containerID, "", "", "",
 		make(map[string]string), make(map[string]string),
 		make(map[string]string), "pauseImage", "", "",
-		&oci.Metadata{}, sandboxID, false, false,
+		&types.Metadata{}, sandboxID, false, false,
 		false, "", "", time.Now(), "")
 	Expect(err).To(BeNil())
 
