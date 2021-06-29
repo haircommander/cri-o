@@ -64,7 +64,7 @@ func (ss *StatsServer) AddSandbox(sb *sandbox.Sandbox) {
 func (ss *StatsServer) RemoveSandbox(sb *sandbox.Sandbox) {
 	ss.Lock()
 	defer ss.Unlock()
-	ss.sandboxes.Delete(sb.ID(), sb)
+	ss.sandboxes.Delete(sb.ID())
 	delete(ss.sboxStats, sb.ID())
 }
 

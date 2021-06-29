@@ -15,6 +15,7 @@ import (
 	"github.com/containers/storage/pkg/truncindex"
 	"github.com/cri-o/cri-o/internal/hostport"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	statsserver "github.com/cri-o/cri-o/internal/lib/stats"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
@@ -44,6 +45,7 @@ type ContainerServer struct {
 	podNameIndex         *registrar.Registrar
 	podIDIndex           *truncindex.TruncIndex
 	Hooks                *hooks.Manager
+	*statsserver.StatsServer
 
 	stateLock sync.Locker
 	state     *containerServerState
@@ -131,7 +133,8 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 			sandboxes:       sandbox.NewMemoryStore(),
 			processLevels:   make(map[string]int),
 		},
-		config: config,
+		config:      config,
+		StatsServer: statsserver.New(runtime, store, config.CgroupManager()),
 	}, nil
 }
 
@@ -530,6 +533,7 @@ func (c *ContainerServer) Shutdown() error {
 	if err != nil && !errors.Is(err, cstorage.ErrLayerUsedByContainer) {
 		return err
 	}
+	c.StatsServer.Shutdown()
 	return nil
 }
 
@@ -614,6 +618,7 @@ func (c *ContainerServer) ListContainers(filters ...func(*oci.Container) bool) (
 // AddSandbox adds a sandbox to the sandbox state store
 func (c *ContainerServer) AddSandbox(sb *sandbox.Sandbox) error {
 	c.state.sandboxes.Add(sb.ID(), sb)
+	c.StatsServer.AddSandbox(sb)
 
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
@@ -645,6 +650,7 @@ func (c *ContainerServer) RemoveSandbox(id string) error {
 	if sb == nil {
 		return nil
 	}
+	c.StatsServer.RemoveSandbox(sb)
 
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
