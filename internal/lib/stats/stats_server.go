@@ -134,7 +134,17 @@ func (ss *StatsServer) update() {
 }
 
 func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) {
-	sandboxStats := &types.PodSandboxStats{}
+	if sb == nil {
+		return
+	}
+	sandboxStats := &types.PodSandboxStats{
+		Attributes: &types.PodSandboxAttributes{
+			ID:          sb.ID(),
+			Labels:      sb.Labels(),
+			Metadata:    sb.Metadata(),
+			Annotations: sb.Annotations(),
+		},
+	}
 	if err := ss.cgroupMgr.PopulateSandboxCgroupStats(sb.CgroupParent(), sandboxStats); err != nil {
 		logrus.Errorf("Error getting sandbox stats %s: %v", sb.ID(), err)
 	}
@@ -143,6 +153,9 @@ func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) {
 	}
 	containerStats := make([]*types.ContainerStats, 0, len(sb.Containers().List()))
 	for _, c := range sb.Containers().List() {
+		if c.StateNoLock().Status == oci.ContainerStateStopped {
+			continue
+		}
 		cStats, err := ss.runtime.ContainerStats(context.TODO(), c, sb.CgroupParent())
 		if err != nil {
 			logrus.Errorf("Error getting container stats %s: %v", c.ID(), err)
@@ -241,6 +254,7 @@ func linkToInterface(link netlink.Link) (*types.InterfaceStats, error) {
 		return nil, errors.Errorf("get stats for iface %s", attrs.Name)
 	}
 	return &types.InterfaceStats{
+		Name:     attrs.Name,
 		RxBytes:  &types.UInt64Value{Value: attrs.Statistics.RxBytes},
 		RxErrors: &types.UInt64Value{Value: attrs.Statistics.RxErrors},
 		TxBytes:  &types.UInt64Value{Value: attrs.Statistics.TxBytes},
