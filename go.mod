@@ -37,6 +37,7 @@ require (
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
+	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/json-iterator/go v1.1.11
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.14.0
@@ -56,7 +57,7 @@ require (
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/urfave/cli/v2 v2.3.0
 	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852
-	golang.org/x/net v0.0.0-20210428140749-89ef3d95e781
+	golang.org/x/net v0.0.0-20210503060351-7fd8e65b6420
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20210603125802-9665404d3644
 	google.golang.org/grpc v1.39.0
@@ -66,7 +67,7 @@ require (
 	k8s.io/cri-api v0.21.2
 	k8s.io/klog/v2 v2.10.0
 	k8s.io/kubernetes v1.21.2
-	k8s.io/release v0.8.0
+	k8s.io/release v0.9.0
 	k8s.io/utils v0.0.0-20210305010621-2afb4311ab10
 	mvdan.cc/sh/v3 v3.3.0
 	sigs.k8s.io/release-utils v0.3.0
