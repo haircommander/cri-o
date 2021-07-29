@@ -7,7 +7,7 @@ require (
 	github.com/Microsoft/go-winio v0.5.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/containerd/cgroups v1.0.1
-	github.com/containerd/containerd v1.5.3
+	github.com/containerd/containerd v1.5.5
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/ttrpc v1.0.2
 	github.com/containerd/typeurl v1.0.2
@@ -42,7 +42,7 @@ require (
 	github.com/onsi/gomega v1.14.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.0.2-0.20210708142037-083f635f2b04
-	github.com/opencontainers/runc v1.0.0-rc95.0.20210521141834-a95237f81684
+	github.com/opencontainers/runc v1.0.1
 	github.com/opencontainers/runtime-spec v1.0.3-0.20210709190330-896175883324
 	github.com/opencontainers/runtime-tools v0.9.1-0.20210326182921-59cdde06764b
 	github.com/opencontainers/selinux v1.8.2

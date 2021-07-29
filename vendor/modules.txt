@@ -101,7 +101,7 @@ github.com/cheggaaa/pb/v3
 github.com/cheggaaa/pb/v3/termutil
 # github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 github.com/chzyer/readline
-# github.com/cilium/ebpf v0.5.0
+# github.com/cilium/ebpf v0.6.2
 github.com/cilium/ebpf
 github.com/cilium/ebpf/asm
 github.com/cilium/ebpf/internal
@@ -116,7 +116,7 @@ github.com/container-orchestrated-devices/container-device-interface/specs-go
 github.com/containerd/cgroups/stats/v1
 # github.com/containerd/console v1.0.2
 github.com/containerd/console
-# github.com/containerd/containerd v1.5.3
+# github.com/containerd/containerd v1.5.5
 ## explicit
 github.com/containerd/containerd/api/services/ttrpc/events/v1
 github.com/containerd/containerd/api/types
@@ -775,7 +775,7 @@ github.com/opencontainers/go-digest
 ## explicit
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v1.0.0-rc95.0.20210521141834-a95237f81684
+# github.com/opencontainers/runc v1.0.1
 ## explicit
 github.com/opencontainers/runc/libcontainer/apparmor
 github.com/opencontainers/runc/libcontainer/cgroups
@@ -930,8 +930,6 @@ github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
 # github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae
 github.com/vishvananda/netns
-# github.com/willf/bitset v1.1.11
-github.com/willf/bitset
 # github.com/xanzy/go-gitlab v0.43.0
 github.com/xanzy/go-gitlab
 # github.com/xanzy/ssh-agent v0.2.1
