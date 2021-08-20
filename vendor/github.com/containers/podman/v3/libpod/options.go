@@ -16,6 +16,7 @@ import (
 	"github.com/containers/podman/v3/libpod/events"
 	"github.com/containers/podman/v3/pkg/namespaces"
 	"github.com/containers/podman/v3/pkg/rootless"
+	"github.com/containers/podman/v3/pkg/specgen"
 	"github.com/containers/podman/v3/pkg/util"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/idtools"
@@ -452,6 +453,19 @@ func WithDefaultInfraCommand(cmd string) RuntimeOption {
 		}
 
 		rt.config.Engine.InfraCommand = cmd
+
+		return nil
+	}
+}
+
+// WithDefaultInfraName sets the infra container name for a single pod.
+func WithDefaultInfraName(name string) RuntimeOption {
+	return func(rt *Runtime) error {
+		if rt.valid {
+			return define.ErrRuntimeFinalized
+		}
+
+		rt.config.Engine.InfraImage = name
 
 		return nil
 	}
@@ -1712,23 +1726,12 @@ func WithUmask(umask string) CtrCreateOption {
 }
 
 // WithSecrets adds secrets to the container
-func WithSecrets(secretNames []string) CtrCreateOption {
+func WithSecrets(containerSecrets []*ContainerSecret) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
 			return define.ErrCtrFinalized
 		}
-		manager, err := secrets.NewManager(ctr.runtime.GetSecretsStorageDir())
-		if err != nil {
-			return err
-		}
-		for _, name := range secretNames {
-			secr, err := manager.Lookup(name)
-			if err != nil {
-				return err
-			}
-			ctr.config.Secrets = append(ctr.config.Secrets, secr)
-		}
-
+		ctr.config.Secrets = containerSecrets
 		return nil
 	}
 }
@@ -1740,7 +1743,7 @@ func WithEnvSecrets(envSecrets map[string]string) CtrCreateOption {
 		if ctr.valid {
 			return define.ErrCtrFinalized
 		}
-		manager, err := secrets.NewManager(ctr.runtime.GetSecretsStorageDir())
+		manager, err := ctr.runtime.SecretsManager()
 		if err != nil {
 			return err
 		}
@@ -1794,6 +1797,19 @@ func WithInfraCommand(cmd []string) PodCreateOption {
 		}
 
 		pod.config.InfraContainer.InfraCommand = cmd
+		return nil
+	}
+}
+
+// WithInfraName sets the infra container name for a single pod.
+func WithInfraName(name string) PodCreateOption {
+	return func(pod *Pod) error {
+		if pod.valid {
+			return define.ErrPodFinalized
+		}
+
+		pod.config.InfraContainer.InfraName = name
+
 		return nil
 	}
 }
@@ -2367,6 +2383,25 @@ func WithVolatile() CtrCreateOption {
 		}
 
 		ctr.config.Volatile = true
+		return nil
+	}
+}
+
+func WithPodPidNS(inp specgen.Namespace) PodCreateOption {
+	return func(p *Pod) error {
+		if p.valid {
+			return define.ErrPodFinalized
+		}
+		if p.config.UsePodPID {
+			switch inp.NSMode {
+			case "container":
+				return errors.Wrap(define.ErrInvalidArg, "Cannot take container in a different NS as an argument")
+			case "host":
+				p.config.UsePodPID = false
+			}
+			p.config.InfraContainer.PidNS = inp
+		}
+
 		return nil
 	}
 }

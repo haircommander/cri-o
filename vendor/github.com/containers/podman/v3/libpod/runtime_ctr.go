@@ -47,6 +47,32 @@ func (r *Runtime) NewContainer(ctx context.Context, rSpec *spec.Spec, options ..
 	return r.newContainer(ctx, rSpec, options...)
 }
 
+func (r *Runtime) PrepareVolumeOnCreateContainer(ctx context.Context, ctr *Container) error {
+	// Copy the content from the underlying image into the newly created
+	// volume if configured to do so.
+	if !r.config.Containers.PrepareVolumeOnCreate {
+		return nil
+	}
+
+	defer func() {
+		if err := ctr.cleanupStorage(); err != nil {
+			logrus.Errorf("error cleaning up container storage %s: %v", ctr.ID(), err)
+		}
+	}()
+
+	mountPoint, err := ctr.mountStorage()
+	if err == nil {
+		// Finish up mountStorage
+		ctr.state.Mounted = true
+		ctr.state.Mountpoint = mountPoint
+		if err = ctr.save(); err != nil {
+			logrus.Errorf("Error saving container %s state: %v", ctr.ID(), err)
+		}
+	}
+
+	return err
+}
+
 // RestoreContainer re-creates a container from an imported checkpoint
 func (r *Runtime) RestoreContainer(ctx context.Context, rSpec *spec.Spec, config *ContainerConfig) (*Container, error) {
 	r.lock.Lock()
@@ -220,6 +246,20 @@ func (r *Runtime) setupContainer(ctx context.Context, ctr *Container) (_ *Contai
 		ctr.config.Networks = netNames
 	}
 
+	// https://github.com/containers/podman/issues/11285
+	// normalize the networks aliases to use network names and never ids
+	if len(ctr.config.NetworkAliases) > 0 {
+		netAliases := make(map[string][]string, len(ctr.config.NetworkAliases))
+		for nameOrID, aliases := range ctr.config.NetworkAliases {
+			netName, err := network.NormalizeName(r.config, nameOrID)
+			if err != nil {
+				return nil, err
+			}
+			netAliases[netName] = aliases
+		}
+		ctr.config.NetworkAliases = netAliases
+	}
+
 	// Inhibit shutdown until creation succeeds
 	shutdown.Inhibit()
 	defer shutdown.Uninhibit()
@@ -327,6 +367,10 @@ func (r *Runtime) setupContainer(ctx context.Context, ctr *Container) (_ *Contai
 		}
 	}
 
+	if ctr.config.Timezone == "" {
+		ctr.config.Timezone = r.config.Containers.TZ
+	}
+
 	if ctr.restoreFromCheckpoint {
 		// Remove information about bind mount
 		// for new container from imported checkpoint
@@ -366,7 +410,7 @@ func (r *Runtime) setupContainer(ctx context.Context, ctr *Container) (_ *Contai
 		return nil, err
 	}
 	for _, secr := range ctr.config.Secrets {
-		err = ctr.extractSecretToCtrStorage(secr.Name)
+		err = ctr.extractSecretToCtrStorage(secr)
 		if err != nil {
 			return nil, err
 		}
@@ -580,6 +624,15 @@ func (r *Runtime) removeContainer(ctx context.Context, c *Container, force, remo
 		// exit code properly, but it's still stopped.
 		if err := c.stop(c.StopTimeout()); err != nil && errors.Cause(err) != define.ErrConmonDead {
 			return errors.Wrapf(err, "cannot remove container %s as it could not be stopped", c.ID())
+		}
+
+		// We unlocked as part of stop() above - there's a chance someone
+		// else got in and removed the container before we reacquired the
+		// lock.
+		// Do a quick ping of the database to check if the container
+		// still exists.
+		if ok, _ := r.state.HasContainer(c.ID()); !ok {
+			return nil
 		}
 	}
 
@@ -857,6 +910,18 @@ func (r *Runtime) LookupContainer(idOrName string) (*Container, error) {
 		return nil, define.ErrRuntimeStopped
 	}
 	return r.state.LookupContainer(idOrName)
+}
+
+// LookupContainerId looks up a container id by its name or a partial ID
+// If a partial ID is not unique, an error will be returned
+func (r *Runtime) LookupContainerID(idOrName string) (string, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if !r.valid {
+		return "", define.ErrRuntimeStopped
+	}
+	return r.state.LookupContainerID(idOrName)
 }
 
 // GetContainers retrieves all containers from the state

@@ -18,6 +18,8 @@ import (
 	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/common/libimage"
 	"github.com/containers/common/pkg/config"
+	"github.com/containers/common/pkg/defaultnet"
+	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	is "github.com/containers/image/v5/storage"
 	"github.com/containers/image/v5/types"
@@ -27,7 +29,6 @@ import (
 	"github.com/containers/podman/v3/libpod/plugin"
 	"github.com/containers/podman/v3/libpod/shutdown"
 	"github.com/containers/podman/v3/pkg/cgroups"
-	"github.com/containers/podman/v3/pkg/registries"
 	"github.com/containers/podman/v3/pkg/rootless"
 	"github.com/containers/podman/v3/pkg/util"
 	"github.com/containers/storage"
@@ -106,6 +107,8 @@ type Runtime struct {
 
 	// noStore indicates whether we need to interact with a store or not
 	noStore bool
+	// secretsManager manages secrets
+	secretsManager *secrets.SecretsManager
 }
 
 // SetXdgDirs ensures the XDG_RUNTIME_DIR env and XDG_CONFIG_HOME variables are set.
@@ -214,8 +217,6 @@ func newRuntimeFromConfig(ctx context.Context, conf *config.Config, options ...R
 	if err := makeRuntime(ctx, runtime); err != nil {
 		return nil, err
 	}
-
-	runtime.libimageEventsShutdown = make(chan bool)
 
 	return runtime, nil
 }
@@ -460,6 +461,11 @@ func makeRuntime(ctx context.Context, runtime *Runtime) (retErr error) {
 		}
 	}
 
+	// If we need to make a default network - do so now.
+	if err := defaultnet.Create(runtime.config.Network.DefaultNetwork, runtime.config.Network.DefaultSubnet, runtime.config.Network.NetworkConfigDir, runtime.config.Engine.StaticDir, runtime.config.Engine.MachineEnabled); err != nil {
+		logrus.Errorf("Failed to created default CNI network: %v", err)
+	}
+
 	// Set up the CNI net plugin
 	netPlugin, err := ocicni.InitCNINoInotify(runtime.config.Network.DefaultNetwork, runtime.config.Network.NetworkConfigDir, "", runtime.config.Network.CNIPluginDirs...)
 	if err != nil {
@@ -701,6 +707,8 @@ var libimageEventsMap = map[libimage.EventType]events.Status{
 // events on the libimage.Runtime.  The gourtine will be cleaned up implicitly
 // when the main() exists.
 func (r *Runtime) libimageEvents() {
+	r.libimageEventsShutdown = make(chan bool)
+
 	toLibpodEventStatus := func(e *libimage.Event) events.Status {
 		status, found := libimageEventsMap[e.Type]
 		if !found {
@@ -709,9 +717,8 @@ func (r *Runtime) libimageEvents() {
 		return status
 	}
 
+	eventChannel := r.libimageRuntime.EventChannel()
 	go func() {
-		eventChannel := r.libimageRuntime.EventChannel()
-
 		for {
 			// Make sure to read and write all events before
 			// checking if we're about to shutdown.
@@ -780,7 +787,9 @@ func (r *Runtime) Shutdown(force bool) error {
 	// attempt to shut it down
 	if r.store != nil {
 		// Wait for the events to be written.
-		r.libimageEventsShutdown <- true
+		if r.libimageEventsShutdown != nil {
+			r.libimageEventsShutdown <- true
+		}
 
 		// Note that the libimage runtime shuts down the store.
 		if err := r.libimageRuntime.Shutdown(force); err != nil {
@@ -922,7 +931,9 @@ func (r *Runtime) LibimageRuntime() *libimage.Runtime {
 
 // SystemContext returns the imagecontext
 func (r *Runtime) SystemContext() *types.SystemContext {
-	return r.imageContext
+	// Return the context from the libimage runtime.  libimage is sensitive
+	// to a number of env vars.
+	return r.libimageRuntime.SystemContext()
 }
 
 // GetOCIRuntimePath retrieves the path of the default OCI runtime.
@@ -935,9 +946,12 @@ func (r *Runtime) StorageConfig() storage.StoreOptions {
 	return r.storageConfig
 }
 
-// GetStore returns the runtime stores
-func (r *Runtime) GetStore() storage.Store {
-	return r.store
+// RunRoot retrieves the current c/storage temporary directory in use by Libpod.
+func (r *Runtime) RunRoot() string {
+	if r.store == nil {
+		return ""
+	}
+	return r.store.RunRoot()
 }
 
 // GetName retrieves the name associated with a given full ID.
@@ -1032,9 +1046,9 @@ func (r *Runtime) Reload() error {
 	if err := r.reloadStorageConf(); err != nil {
 		return err
 	}
-	if err := reloadRegistriesConf(); err != nil {
-		return err
-	}
+	// Invalidate the registries.conf cache. The next invocation will
+	// reload all data.
+	sysregistriesv2.InvalidateCache()
 	return nil
 }
 
@@ -1046,17 +1060,6 @@ func (r *Runtime) reloadContainersConf() error {
 	}
 	r.config = config
 	logrus.Infof("applied new containers configuration: %v", config)
-	return nil
-}
-
-// reloadRegistries reloads the registries.conf
-func reloadRegistriesConf() error {
-	sysregistriesv2.InvalidateCache()
-	registries, err := sysregistriesv2.GetRegistries(&types.SystemContext{SystemRegistriesConfPath: registries.SystemRegistriesConfPath()})
-	if err != nil {
-		return err
-	}
-	logrus.Infof("applied new registry configuration: %+v", registries)
 	return nil
 }
 
@@ -1089,6 +1092,18 @@ func (r *Runtime) getVolumePlugin(name string) (*plugin.VolumePlugin, error) {
 // GetSecretsStoreageDir returns the directory that the secrets manager should take
 func (r *Runtime) GetSecretsStorageDir() string {
 	return filepath.Join(r.store.GraphRoot(), "secrets")
+}
+
+// SecretsManager returns the directory that the secrets manager should take
+func (r *Runtime) SecretsManager() (*secrets.SecretsManager, error) {
+	if r.secretsManager == nil {
+		manager, err := secrets.NewManager(r.GetSecretsStorageDir())
+		if err != nil {
+			return nil, err
+		}
+		r.secretsManager = manager
+	}
+	return r.secretsManager, nil
 }
 
 func graphRootMounted() bool {

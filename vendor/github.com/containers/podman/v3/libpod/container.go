@@ -14,7 +14,6 @@ import (
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/podman/v3/libpod/define"
 	"github.com/containers/podman/v3/libpod/lock"
-	"github.com/containers/podman/v3/pkg/rootless"
 	"github.com/containers/storage"
 	"github.com/cri-o/ocicni/pkg/ocicni"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
@@ -127,6 +126,10 @@ type Container struct {
 	// This is true if a container is restored from a checkpoint.
 	restoreFromCheckpoint bool
 
+	// Used to query the NOTIFY_SOCKET once along with setting up
+	// mounts etc.
+	notifySocket string
+
 	slirp4netnsSubnet *net.IPNet
 }
 
@@ -235,6 +238,18 @@ type ContainerImageVolume struct {
 	Dest string `json:"dest"`
 	// ReadWrite sets the volume writable.
 	ReadWrite bool `json:"rw"`
+}
+
+// ContainerSecret is a secret that is mounted in a container
+type ContainerSecret struct {
+	// Secret is the secret
+	*secrets.Secret
+	// UID is tbe UID of the secret file
+	UID uint32
+	// GID is the GID of the secret file
+	GID uint32
+	// Mode is the mode of the secret file
+	Mode uint32
 }
 
 // ContainerNetworkDescriptions describes the relationship between the CNI
@@ -1136,7 +1151,7 @@ func (c *Container) Umask() string {
 }
 
 //Secrets return the secrets in the container
-func (c *Container) Secrets() []*secrets.Secret {
+func (c *Container) Secrets() []*ContainerSecret {
 	return c.config.Secrets
 }
 
@@ -1162,11 +1177,51 @@ func (c *Container) Networks() ([]string, bool, error) {
 	return c.networks()
 }
 
+// NetworkMode gets the configured network mode for the container.
+// Get actual value from the database
+func (c *Container) NetworkMode() string {
+	networkMode := ""
+	ctrSpec := c.config.Spec
+
+	switch {
+	case c.config.CreateNetNS:
+		// We actually store the network
+		// mode for Slirp and Bridge, so
+		// we can just use that
+		networkMode = string(c.config.NetMode)
+	case c.config.NetNsCtr != "":
+		networkMode = fmt.Sprintf("container:%s", c.config.NetNsCtr)
+	default:
+		// Find the spec's network namespace.
+		// If there is none, it's host networking.
+		// If there is one and it has a path, it's "ns:".
+		foundNetNS := false
+		for _, ns := range ctrSpec.Linux.Namespaces {
+			if ns.Type == spec.NetworkNamespace {
+				foundNetNS = true
+				if ns.Path != "" {
+					networkMode = fmt.Sprintf("ns:%s", ns.Path)
+				} else {
+					// We're making a network ns,  but not
+					// configuring with Slirp or CNI. That
+					// means it's --net=none
+					networkMode = "none"
+				}
+				break
+			}
+		}
+		if !foundNetNS {
+			networkMode = "host"
+		}
+	}
+	return networkMode
+}
+
 // Unlocked accessor for networks
 func (c *Container) networks() ([]string, bool, error) {
 	networks, err := c.runtime.state.GetNetworks(c)
 	if err != nil && errors.Cause(err) == define.ErrNoSuchNetwork {
-		if len(c.config.Networks) == 0 && !rootless.IsRootless() {
+		if len(c.config.Networks) == 0 && c.config.NetMode.IsBridge() {
 			return []string{c.runtime.netPlugin.GetDefaultNetworkName()}, true, nil
 		}
 		return c.config.Networks, false, nil

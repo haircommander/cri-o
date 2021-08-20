@@ -29,7 +29,6 @@ import (
 	"github.com/containers/common/pkg/apparmor"
 	"github.com/containers/common/pkg/chown"
 	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/common/pkg/subscriptions"
 	"github.com/containers/common/pkg/umask"
 	"github.com/containers/podman/v3/libpod/define"
@@ -353,10 +352,33 @@ func (c *Container) generateSpec(ctx context.Context) (*spec.Spec, error) {
 		return nil, err
 	}
 
+	if err := c.mountNotifySocket(g); err != nil {
+		return nil, err
+	}
+
 	// Get host UID and GID based on the container process UID and GID.
 	hostUID, hostGID, err := butil.GetHostIDs(util.IDtoolsToRuntimeSpec(c.config.IDMappings.UIDMap), util.IDtoolsToRuntimeSpec(c.config.IDMappings.GIDMap), uint32(execUser.Uid), uint32(execUser.Gid))
 	if err != nil {
 		return nil, err
+	}
+
+	// Add named volumes
+	for _, namedVol := range c.config.NamedVolumes {
+		volume, err := c.runtime.GetVolume(namedVol.Name)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error retrieving volume %s to add to container %s", namedVol.Name, c.ID())
+		}
+		mountPoint, err := volume.MountPoint()
+		if err != nil {
+			return nil, err
+		}
+		volMount := spec.Mount{
+			Type:        "bind",
+			Source:      mountPoint,
+			Destination: namedVol.Dest,
+			Options:     namedVol.Options,
+		}
+		g.AddMount(volMount)
 	}
 
 	// Check if the spec file mounts contain the options z, Z or U.
@@ -391,25 +413,6 @@ func (c *Container) generateSpec(ctx context.Context) (*spec.Spec, error) {
 
 	g.SetProcessSelinuxLabel(c.ProcessLabel())
 	g.SetLinuxMountLabel(c.MountLabel())
-
-	// Add named volumes
-	for _, namedVol := range c.config.NamedVolumes {
-		volume, err := c.runtime.GetVolume(namedVol.Name)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error retrieving volume %s to add to container %s", namedVol.Name, c.ID())
-		}
-		mountPoint, err := volume.MountPoint()
-		if err != nil {
-			return nil, err
-		}
-		volMount := spec.Mount{
-			Type:        "bind",
-			Source:      mountPoint,
-			Destination: namedVol.Dest,
-			Options:     namedVol.Options,
-		}
-		g.AddMount(volMount)
-	}
 
 	// Add bind mounts to container
 	for dstPath, srcPath := range c.state.BindMounts {
@@ -759,7 +762,10 @@ func (c *Container) generateSpec(ctx context.Context) (*spec.Spec, error) {
 		return nil, errors.Wrapf(err, "error setting up OCI Hooks")
 	}
 	if len(c.config.EnvSecrets) > 0 {
-		manager, err := secrets.NewManager(c.runtime.GetSecretsStorageDir())
+		manager, err := c.runtime.SecretsManager()
+		if err != nil {
+			return nil, err
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -773,6 +779,41 @@ func (c *Container) generateSpec(ctx context.Context) (*spec.Spec, error) {
 	}
 
 	return g.Config, nil
+}
+
+// mountNotifySocket mounts the NOTIFY_SOCKET into the container if it's set
+// and if the sdnotify mode is set to container.  It also sets c.notifySocket
+// to avoid redundantly looking up the env variable.
+func (c *Container) mountNotifySocket(g generate.Generator) error {
+	notify, ok := os.LookupEnv("NOTIFY_SOCKET")
+	if !ok {
+		return nil
+	}
+	c.notifySocket = notify
+
+	if c.config.SdNotifyMode != define.SdNotifyModeContainer {
+		return nil
+	}
+
+	notifyDir := filepath.Join(c.bundlePath(), "notify")
+	logrus.Debugf("checking notify %q dir", notifyDir)
+	if err := os.MkdirAll(notifyDir, 0755); err != nil {
+		if !os.IsExist(err) {
+			return errors.Wrapf(err, "unable to create notify %q dir", notifyDir)
+		}
+	}
+	if err := label.Relabel(notifyDir, c.MountLabel(), true); err != nil {
+		return errors.Wrapf(err, "relabel failed %q", notifyDir)
+	}
+	logrus.Debugf("add bindmount notify %q dir", notifyDir)
+	if _, ok := c.state.BindMounts["/run/notify"]; !ok {
+		c.state.BindMounts["/run/notify"] = notifyDir
+	}
+
+	// Set the container's notify socket to the proxy socket created by conmon
+	g.AddProcessEnv("NOTIFY_SOCKET", "/run/notify/notify.sock")
+
+	return nil
 }
 
 // systemd expects to have /run, /run/lock and /tmp on tmpfs
@@ -899,8 +940,27 @@ func (c *Container) addNamespaceContainer(g *generate.Generator, ns LinuxNS, ctr
 }
 
 func (c *Container) exportCheckpoint(options ContainerCheckpointOptions) error {
-	if len(c.Dependencies()) > 0 {
-		return errors.Errorf("Cannot export checkpoints of containers with dependencies")
+	if len(c.Dependencies()) == 1 {
+		// Check if the dependency is an infra container. If it is we can checkpoint
+		// the container out of the Pod.
+		if c.config.Pod == "" {
+			return errors.Errorf("cannot export checkpoints of containers with dependencies")
+		}
+
+		pod, err := c.runtime.state.Pod(c.config.Pod)
+		if err != nil {
+			return errors.Wrapf(err, "container %s is in pod %s, but pod cannot be retrieved", c.ID(), c.config.Pod)
+		}
+		infraID, err := pod.InfraContainerID()
+		if err != nil {
+			return errors.Wrapf(err, "cannot retrieve infra container ID for pod %s", c.config.Pod)
+		}
+		if c.Dependencies()[0] != infraID {
+			return errors.Errorf("cannot export checkpoints of containers with dependencies")
+		}
+	}
+	if len(c.Dependencies()) > 1 {
+		return errors.Errorf("cannot export checkpoints of containers with dependencies")
 	}
 	logrus.Debugf("Exporting checkpoint image of container %q to %q", c.ID(), options.TargetFile)
 
@@ -921,7 +981,7 @@ func (c *Container) exportCheckpoint(options ContainerCheckpointOptions) error {
 	var addToTarFiles []string
 	if !options.IgnoreRootfs {
 		// To correctly track deleted files, let's go through the output of 'podman diff'
-		rootFsChanges, err := c.runtime.GetDiff("", c.ID())
+		rootFsChanges, err := c.runtime.GetDiff("", c.ID(), define.DiffContainer)
 		if err != nil {
 			return errors.Wrapf(err, "error exporting root file-system diff for %q", c.ID())
 		}
@@ -984,7 +1044,7 @@ func (c *Container) exportCheckpoint(options ContainerCheckpointOptions) error {
 	}
 
 	input, err := archive.TarWithOptions(c.bundlePath(), &archive.TarOptions{
-		Compression:      archive.Gzip,
+		Compression:      options.Compression,
 		IncludeSourceDir: true,
 		IncludeFiles:     includeFiles,
 	})
@@ -1019,9 +1079,9 @@ func (c *Container) exportCheckpoint(options ContainerCheckpointOptions) error {
 	return nil
 }
 
-func (c *Container) checkpointRestoreSupported() error {
-	if !criu.CheckForCriu() {
-		return errors.Errorf("checkpoint/restore requires at least CRIU %d", criu.MinCriuVersion)
+func (c *Container) checkpointRestoreSupported(version int) error {
+	if !criu.CheckForCriu(version) {
+		return errors.Errorf("checkpoint/restore requires at least CRIU %d", version)
 	}
 	if !c.ociRuntime.SupportsCheckpoint() {
 		return errors.Errorf("configured runtime does not support checkpoint/restore")
@@ -1030,7 +1090,7 @@ func (c *Container) checkpointRestoreSupported() error {
 }
 
 func (c *Container) checkpoint(ctx context.Context, options ContainerCheckpointOptions) error {
-	if err := c.checkpointRestoreSupported(); err != nil {
+	if err := c.checkpointRestoreSupported(criu.MinCriuVersion); err != nil {
 		return err
 	}
 
@@ -1134,8 +1194,18 @@ func (c *Container) importPreCheckpoint(input string) error {
 }
 
 func (c *Container) restore(ctx context.Context, options ContainerCheckpointOptions) (retErr error) {
-	if err := c.checkpointRestoreSupported(); err != nil {
+	minCriuVersion := func() int {
+		if options.Pod == "" {
+			return criu.MinCriuVersion
+		}
+		return criu.PodCriuVersion
+	}()
+	if err := c.checkpointRestoreSupported(minCriuVersion); err != nil {
 		return err
+	}
+
+	if options.Pod != "" && !crutils.CRRuntimeSupportsPodCheckpointRestore(c.ociRuntime.Path()) {
+		return errors.Errorf("runtime %s does not support pod restore", c.ociRuntime.Path())
 	}
 
 	if !c.ensureState(define.ContainerStateConfigured, define.ContainerStateExited) {
@@ -1242,6 +1312,83 @@ func (c *Container) restore(ctx context.Context, options ContainerCheckpointOpti
 
 		if err := g.AddOrReplaceLinuxNamespace(string(spec.NetworkNamespace), netNSPath); err != nil {
 			return err
+		}
+	}
+
+	if options.Pod != "" {
+		// Running in a Pod means that we have to change all namespace settings to
+		// the ones from the infrastructure container.
+		pod, err := c.runtime.LookupPod(options.Pod)
+		if err != nil {
+			return errors.Wrapf(err, "pod %q cannot be retrieved", options.Pod)
+		}
+
+		infraContainer, err := pod.InfraContainer()
+		if err != nil {
+			return errors.Wrapf(err, "cannot retrieved infra container from pod %q", options.Pod)
+		}
+
+		infraContainer.lock.Lock()
+		if err := infraContainer.syncContainer(); err != nil {
+			infraContainer.lock.Unlock()
+			return errors.Wrapf(err, "Error syncing infrastructure container %s status", infraContainer.ID())
+		}
+		if infraContainer.state.State != define.ContainerStateRunning {
+			if err := infraContainer.initAndStart(ctx); err != nil {
+				infraContainer.lock.Unlock()
+				return errors.Wrapf(err, "Error starting infrastructure container %s status", infraContainer.ID())
+			}
+		}
+		infraContainer.lock.Unlock()
+
+		if c.config.IPCNsCtr != "" {
+			nsPath, err := infraContainer.namespacePath(IPCNS)
+			if err != nil {
+				return errors.Wrapf(err, "cannot retrieve IPC namespace path for Pod %q", options.Pod)
+			}
+			if err := g.AddOrReplaceLinuxNamespace(string(spec.IPCNamespace), nsPath); err != nil {
+				return err
+			}
+		}
+
+		if c.config.NetNsCtr != "" {
+			nsPath, err := infraContainer.namespacePath(NetNS)
+			if err != nil {
+				return errors.Wrapf(err, "cannot retrieve network namespace path for Pod %q", options.Pod)
+			}
+			if err := g.AddOrReplaceLinuxNamespace(string(spec.NetworkNamespace), nsPath); err != nil {
+				return err
+			}
+		}
+
+		if c.config.PIDNsCtr != "" {
+			nsPath, err := infraContainer.namespacePath(PIDNS)
+			if err != nil {
+				return errors.Wrapf(err, "cannot retrieve PID namespace path for Pod %q", options.Pod)
+			}
+			if err := g.AddOrReplaceLinuxNamespace(string(spec.PIDNamespace), nsPath); err != nil {
+				return err
+			}
+		}
+
+		if c.config.UTSNsCtr != "" {
+			nsPath, err := infraContainer.namespacePath(UTSNS)
+			if err != nil {
+				return errors.Wrapf(err, "cannot retrieve UTS namespace path for Pod %q", options.Pod)
+			}
+			if err := g.AddOrReplaceLinuxNamespace(string(spec.UTSNamespace), nsPath); err != nil {
+				return err
+			}
+		}
+
+		if c.config.CgroupNsCtr != "" {
+			nsPath, err := infraContainer.namespacePath(CgroupNS)
+			if err != nil {
+				return errors.Wrapf(err, "cannot retrieve Cgroup namespace path for Pod %q", options.Pod)
+			}
+			if err := g.AddOrReplaceLinuxNamespace(string(spec.CgroupNamespace), nsPath); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1622,6 +1769,7 @@ rootless=%d
 			c.state.BindMounts[dest] = src
 		}
 	}
+
 	return nil
 }
 
@@ -1804,6 +1952,7 @@ func (c *Container) appendHosts(path string, netCtr *Container) (string, error) 
 // and returns a string in a format that can be written to the host file
 func (c *Container) getHosts() string {
 	var hosts string
+
 	if len(c.config.HostAdd) > 0 {
 		for _, host := range c.config.HostAdd {
 			// the host format has already been verified at this point
@@ -1814,36 +1963,33 @@ func (c *Container) getHosts() string {
 
 	hosts += c.cniHosts()
 
-	// If not making a network namespace, add our own hostname.
+	// Add hostname for slirp4netns
 	if c.Hostname() != "" {
 		if c.config.NetMode.IsSlirp4netns() {
 			// When using slirp4netns, the interface gets a static IP
 			slirp4netnsIP, err := GetSlirp4netnsIP(c.slirp4netnsSubnet)
 			if err != nil {
-				logrus.Warn("failed to determine slirp4netnsIP: ", err.Error())
+				logrus.Warnf("failed to determine slirp4netnsIP: %v", err.Error())
 			} else {
 				hosts += fmt.Sprintf("# used by slirp4netns\n%s\t%s %s\n", slirp4netnsIP.String(), c.Hostname(), c.config.Name)
 			}
-		} else {
-			hasNetNS := false
-			netNone := false
-			for _, ns := range c.config.Spec.Linux.Namespaces {
-				if ns.Type == spec.NetworkNamespace {
-					hasNetNS = true
-					if ns.Path == "" && !c.config.CreateNetNS {
-						netNone = true
-					}
-					break
+		}
+
+		// Do we have a network namespace?
+		netNone := false
+		for _, ns := range c.config.Spec.Linux.Namespaces {
+			if ns.Type == spec.NetworkNamespace {
+				if ns.Path == "" && !c.config.CreateNetNS {
+					netNone = true
 				}
+				break
 			}
-			if !hasNetNS {
-				// 127.0.1.1 and host's hostname to match Docker
-				osHostname, _ := os.Hostname()
-				hosts += fmt.Sprintf("127.0.1.1 %s %s %s\n", osHostname, c.Hostname(), c.config.Name)
-			}
-			if netNone {
-				hosts += fmt.Sprintf("127.0.1.1 %s %s\n", c.Hostname(), c.config.Name)
-			}
+		}
+
+		// If we are net=none (have a network namespace, but not connected to
+		// anything) add the container's name and hostname to localhost.
+		if netNone {
+			hosts += fmt.Sprintf("127.0.0.1 %s %s\n", c.Hostname(), c.config.Name)
 		}
 	}
 
@@ -2413,7 +2559,7 @@ func (c *Container) createSecretMountDir() error {
 		oldUmask := umask.Set(0)
 		defer umask.Set(oldUmask)
 
-		if err := os.MkdirAll(src, 0644); err != nil {
+		if err := os.MkdirAll(src, 0755); err != nil {
 			return err
 		}
 		if err := label.Relabel(src, c.config.MountLabel, false); err != nil {
@@ -2488,6 +2634,11 @@ func (c *Container) fixVolumePermissions(v *ContainerNamedVolume) error {
 		// https://github.com/containers/podman/issues/10188
 		st, err := os.Lstat(filepath.Join(c.state.Mountpoint, v.Dest))
 		if err == nil {
+			if stat, ok := st.Sys().(*syscall.Stat_t); ok {
+				if err := os.Lchown(mountPoint, int(stat.Uid), int(stat.Gid)); err != nil {
+					return err
+				}
+			}
 			if err := os.Chmod(mountPoint, st.Mode()|0111); err != nil {
 				return err
 			}
