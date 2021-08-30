@@ -462,7 +462,7 @@ func (r *ConmonOCIRuntime) startExec(c *Container, sessionID string, options *Ex
 		Setpgid: true,
 	}
 
-	err = startCommandGivenSelinux(execCmd)
+	err = startCommandGivenSelinux(execCmd, c)
 
 	// We don't need children pipes  on the parent side
 	errorhandling.CloseQuiet(childSyncPipe)
@@ -610,6 +610,9 @@ func attachExecHTTP(c *Container, sessionID string, r *http.Request, w http.Resp
 			_, err := utils.CopyDetachable(conn, httpBuf, detachKeys)
 			logrus.Debugf("STDIN copy completed")
 			stdinChan <- err
+			if connErr := conn.CloseWrite(); connErr != nil {
+				logrus.Errorf("Unable to close conn: %v", connErr)
+			}
 		}()
 	}
 

@@ -92,8 +92,7 @@ func MakeContainer(ctx context.Context, rt *libpod.Runtime, s *specgen.SpecGener
 		options = append(options, libpod.WithRootFS(s.Rootfs))
 	} else {
 		var resolvedImageName string
-		lookupOptions := &libimage.LookupImageOptions{IgnorePlatform: true}
-		newImage, resolvedImageName, err = rt.LibimageRuntime().LookupImage(s.Image, lookupOptions)
+		newImage, resolvedImageName, err = rt.LibimageRuntime().LookupImage(s.Image, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +153,15 @@ func MakeContainer(ctx context.Context, rt *libpod.Runtime, s *specgen.SpecGener
 	if err != nil {
 		return nil, err
 	}
-	return rt.NewContainer(ctx, runtimeSpec, options...)
+
+	ctr, err := rt.NewContainer(ctx, runtimeSpec, options...)
+	if err != nil {
+		return ctr, err
+	}
+
+	// Copy the content from the underlying image into the newly created
+	// volume if configured to do so.
+	return ctr, rt.PrepareVolumeOnCreateContainer(ctx, ctr)
 }
 
 func extractCDIDevices(s *specgen.SpecGenerator) []libpod.CtrCreateOption {
@@ -401,7 +408,24 @@ func createContainerOptions(ctx context.Context, rt *libpod.Runtime, s *specgen.
 	}
 
 	if len(s.Secrets) != 0 {
-		options = append(options, libpod.WithSecrets(s.Secrets))
+		manager, err := rt.SecretsManager()
+		if err != nil {
+			return nil, err
+		}
+		var secrs []*libpod.ContainerSecret
+		for _, s := range s.Secrets {
+			secr, err := manager.Lookup(s.Source)
+			if err != nil {
+				return nil, err
+			}
+			secrs = append(secrs, &libpod.ContainerSecret{
+				Secret: secr,
+				UID:    s.UID,
+				GID:    s.GID,
+				Mode:   s.Mode,
+			})
+		}
+		options = append(options, libpod.WithSecrets(secrs))
 	}
 
 	if len(s.EnvSecrets) != 0 {
