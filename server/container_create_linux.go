@@ -268,6 +268,9 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		processLabel = ""
 	}
 
+	log.Infof(ctx, "Sleeping for ctr %s", ctr.Name())
+	time.Sleep(time.Minute * 4)
+	log.Infof(ctx, "Done sleeping for ctr %s", ctr.Name())
 	containerVolumes, ociMounts, err := addOCIBindMounts(ctx, mountLabel, containerConfig, specgen, s.config.RuntimeConfig.BindMountPrefix, s.config.AbsentMountSourcesToReject)
 	if err != nil {
 		return nil, err
