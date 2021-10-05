@@ -180,7 +180,7 @@ func (s *Server) getResourceOrWait(ctx context.Context, name, resourceType strin
 	const resourceCreationWaitTime = time.Minute * 4
 
 	if cachedID := s.resourceStore.Get(name); cachedID != "" {
-		log.Infof(ctx, "Found %s %s with ID %s in resource cache; using it", resourceType, name, cachedID)
+		log.Infof(ctx, "Found %s %s with ID %s in resource store; using it", resourceType, name, cachedID)
 		return cachedID, nil
 	}
 	watcher := s.resourceStore.WatcherForResource(name)
@@ -198,13 +198,19 @@ func (s *Server) getResourceOrWait(ctx context.Context, name, resourceType strin
 	// independent of the kubelet's signal.
 	case <-time.After(resourceCreationWaitTime):
 		err = errors.Errorf("waited too long for request to timeout or %s %s to be created", resourceType, name)
-	// If the resource becomes available while we're watching for it, we still need to error on this request.
-	// When we pull the resource from the cache after waiting, we won't run the cleanup funcs.
-	// However, we don't know how long we've been making the kubelet wait for the request, and the request could time outt
-	// after we stop paying attention. This would cause CRI-O to attempt to send back a resource that the kubelet
-	// will not receive, causing a resource leak.
+	// If the resource becomes available while we're watching for it, we should return it.
+	// While there exists a very slim chance the kubelet will time out right after CRI-O successfully
+	// returns this resource (potentially causing a leak), this will reduce the chance of kubelet's cleanup
+	// between retries causing errors in CRI-O (like subPath cleanup for container creation failing after
+	// the container has been created in the runtime).
+	// We don't risk a leak here, because the resource has been set as Created. If the kubelet has moved on
+	// from this attempt, it will later realize a container exists that shouldn't and remove it.
 	case <-watcher:
-		err = errors.Errorf("the requested %s %s is now ready and will be provided to the kubelet on next retry", resourceType, name)
+		if cachedID := s.resourceStore.Get(name); cachedID != "" {
+			log.Infof(ctx, "Found %s %s with ID %s in resource store after waiting; using it", resourceType, name, cachedID)
+			return cachedID, nil
+		}
+		err = errors.Errorf("the requested %s %s was not found; another CRI-O routine must have taken it", resourceType, name)
 	}
 
 	return "", errors.Wrap(err, "Kubelet may be retrying requests that are timing out in CRI-O due to system load")
