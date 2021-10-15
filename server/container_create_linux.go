@@ -843,8 +843,8 @@ func clearReadOnly(m *rspec.Mount) {
 	m.Options = append(m.Options, "rw")
 }
 
-func addOCIBindMounts(ctx context.Context, ctr ctrIface.Container, mountLabel, bindMountPrefix string, absentMountSourcesToReject []string, maybeRelabel, skipRelabel bool) ([]oci.ContainerVolume, []rspec.Mount, error) {
-	volumes := []oci.ContainerVolume{}
+func addOCIBindMounts(ctx context.Context, ctr ctrIface.Container, mountLabel, bindMountPrefix string, absentMountSourcesToReject []string, maybeRelabel, skipRelabel bool) ([]*types.Mount, []rspec.Mount, error) {
+	volumes := []*types.Mount{}
 	ociMounts := []rspec.Mount{}
 	containerConfig := ctr.Config()
 	specgen := ctr.Spec()
@@ -960,7 +960,7 @@ func addOCIBindMounts(ctx context.Context, ctr ctrIface.Container, mountLabel, b
 			}
 		}
 
-		volumes = append(volumes, oci.ContainerVolume{
+		volumes = append(volumes, &types.Mount{
 			ContainerPath: dest,
 			HostPath:      src,
 			Readonly:      m.Readonly,

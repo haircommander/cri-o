@@ -466,9 +466,9 @@ type KeyValue struct {
 }
 
 type Mount struct {
-	ContainerPath  string
-	HostPath       string
-	Readonly       bool
+	ContainerPath  string `json:"container_path"`
+	HostPath       string `json:"host_path"`
+	Readonly       bool   `json:"readonly"`
 	SelinuxRelabel bool
 	Propagation    MountPropagation
 }

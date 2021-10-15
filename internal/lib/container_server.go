@@ -284,7 +284,7 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	scontainer.SetMountPoint(m.Annotations[annotations.MountPoint])
 
 	if m.Annotations[annotations.Volumes] != "" {
-		containerVolumes := []oci.ContainerVolume{}
+		containerVolumes := []*types.Mount{}
 		if err = json.Unmarshal([]byte(m.Annotations[annotations.Volumes]), &containerVolumes); err != nil {
 			return sb, fmt.Errorf("failed to unmarshal container volumes: %v", err)
 		}

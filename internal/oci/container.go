@@ -44,7 +44,7 @@ var (
 // Container represents a runtime container.
 type Container struct {
 	criContainer   *types.Container
-	volumes        []ContainerVolume
+	volumes        []*types.Mount
 	id             string
 	name           string
 	logPath        string
@@ -78,13 +78,6 @@ type Container struct {
 	stopTimeoutChan    chan time.Duration
 	stoppedChan        chan struct{}
 	stopLock           sync.Mutex
-}
-
-// ContainerVolume is a bind mount for the container.
-type ContainerVolume struct {
-	ContainerPath string `json:"container_path"`
-	HostPath      string `json:"host_path"`
-	Readonly      bool   `json:"readonly"`
 }
 
 // ContainerState represents the status of a container.
@@ -370,12 +363,12 @@ func (c *Container) StateNoLock() *ContainerState {
 }
 
 // AddVolume adds a volume to list of container volumes.
-func (c *Container) AddVolume(v ContainerVolume) {
+func (c *Container) AddVolume(v *types.Mount) {
 	c.volumes = append(c.volumes, v)
 }
 
 // Volumes returns the list of container volumes.
-func (c *Container) Volumes() []ContainerVolume {
+func (c *Container) Volumes() []*types.Mount {
 	return c.volumes
 }
 

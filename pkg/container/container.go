@@ -16,7 +16,6 @@ import (
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
-	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
 	crioann "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/cri-o/cri-o/server/cri/types"
@@ -90,7 +89,7 @@ type Container interface {
 	SpecAddMount(rspec.Mount)
 
 	// SpecAddAnnotations adds annotations to the spec.
-	SpecAddAnnotations(ctx context.Context, sandbox *sandbox.Sandbox, containerVolume []oci.ContainerVolume, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) error
+	SpecAddAnnotations(ctx context.Context, sandbox *sandbox.Sandbox, containerVolume []*types.Mount, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) error
 
 	// SpecAddDevices adds devices from the server config, and container CRI config
 	SpecAddDevices([]device.Device, []device.Device, bool, bool) error
@@ -135,7 +134,7 @@ func (c *container) SpecAddMount(r rspec.Mount) {
 }
 
 // SpecAddAnnotation adds all annotations to the spec
-func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox, containerVolumes []oci.ContainerVolume, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) (err error) {
+func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox, containerVolumes []*types.Mount, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) (err error) {
 	// Copied from k8s.io/kubernetes/pkg/kubelet/kuberuntime/labels.go
 	const podTerminationGracePeriodLabel = "io.kubernetes.pod.terminationGracePeriod"
 
