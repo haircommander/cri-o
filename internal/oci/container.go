@@ -43,6 +43,7 @@ var (
 
 // Container represents a runtime container.
 type Container struct {
+	criContainer   *types.Container
 	volumes        []ContainerVolume
 	id             string
 	name           string
@@ -107,22 +108,27 @@ func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations,
 	state := &ContainerState{}
 	state.Created = created
 	c := &Container{
-		id:              id,
+		criContainer: &types.Container{
+			ID:           id,
+			PodSandboxID: sandbox,
+			CreatedAt:    created.UnixNano(),
+			Labels:       labels,
+			Metadata:     metadata,
+			Annotations:  annotations,
+			Image: &types.ImageSpec{
+				Image: image,
+			},
+			ImageRef: imageRef,
+		},
 		name:            name,
 		bundlePath:      bundlePath,
 		logPath:         logPath,
-		labels:          labels,
-		sandbox:         sandbox,
 		terminal:        terminal,
 		stdin:           stdin,
 		stdinOnce:       stdinOnce,
 		runtimeHandler:  runtimeHandler,
-		metadata:        metadata,
-		annotations:     annotations,
 		crioAnnotations: crioAnnotations,
-		image:           image,
 		imageName:       imageName,
-		imageRef:        imageRef,
 		dir:             dir,
 		state:           state,
 		stopSignal:      stopSignal,
@@ -137,7 +143,16 @@ func NewSpoofedContainer(id, name string, labels map[string]string, sandbox stri
 	state.Created = created
 	state.Started = created
 	c := &Container{
-		id:      id,
+		criContainer: &types.Container{
+			ID:        id,
+			CreatedAt: created.UnixNano(),
+			Labels:    labels,
+			Metadata:  &types.ContainerMetadata{},
+			Annotations: map[string]string{
+				ann.SpoofedContainer: "true",
+			},
+			Image: &types.ImageSpec{},
+		},
 		name:    name,
 		labels:  labels,
 		spoofed: true,
@@ -145,10 +160,11 @@ func NewSpoofedContainer(id, name string, labels map[string]string, sandbox stri
 		dir:     dir,
 		sandbox: sandbox,
 	}
-	c.annotations = map[string]string{
-		ann.SpoofedContainer: "true",
-	}
 	return c
+}
+
+func (c *Container) CRIContainer() *types.Container {
+	return c.criContainer
 }
 
 // SetSpec loads the OCI spec in the container struct
