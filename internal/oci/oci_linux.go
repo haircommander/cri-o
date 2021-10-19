@@ -33,6 +33,7 @@ func (r *runtimeOCI) createContainerPlatform(c *Container, cgroupParent string, 
 			},
 		},
 	}
+
 	// Mutate our newly created spec to find the customizations that are needed for conmon
 	if err := r.config.Workloads.MutateSpecGivenAnnotations(types.InfraContainerName, g, c.Annotations()); err != nil {
 		return err
