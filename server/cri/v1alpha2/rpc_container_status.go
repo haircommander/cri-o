@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -11,7 +11,7 @@ func (s *service) ContainerStatus(
 	ctx context.Context, req *pb.ContainerStatusRequest,
 ) (*pb.ContainerStatusResponse, error) {
 	r := &types.ContainerStatusRequest{
-		ContainerID: req.ContainerId,
+		ContainerId: req.ContainerId,
 		Verbose:     req.Verbose,
 	}
 
@@ -27,7 +27,7 @@ func (s *service) ContainerStatus(
 
 	if res.Status != nil {
 		resp.Status = &pb.ContainerStatus{
-			Id:          res.Status.ID,
+			Id:          res.Status.Id,
 			State:       pb.ContainerState(res.Status.State),
 			CreatedAt:   res.Status.CreatedAt,
 			StartedAt:   res.Status.StartedAt,

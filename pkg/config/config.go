@@ -895,7 +895,7 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 		}
 	}
 
-	if !(c.ConmonCgroup == "pod" || strings.HasSuffix(c.ConmonCgroup, ".slice")) {
+	if !(c.ConmonCgroup == utils.PodInfraName || strings.HasSuffix(c.ConmonCgroup, ".slice")) {
 		return errors.New("conmon cgroup should be 'pod' or a systemd slice")
 	}
 
@@ -1007,7 +1007,7 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 		}
 		c.cgroupManager = cgroupManager
 
-		if !c.cgroupManager.IsSystemd() && c.ConmonCgroup != "pod" && c.ConmonCgroup != "" {
+		if !c.cgroupManager.IsSystemd() && c.ConmonCgroup != utils.PodInfraName && c.ConmonCgroup != "" {
 			return errors.New("cgroupfs manager conmon cgroup should be 'pod' or empty")
 		}
 	}

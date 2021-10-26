@@ -3,9 +3,9 @@ package server
 import (
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
-	"github.com/cri-o/cri-o/server/cri/types"
 	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/fields"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // filterSandbox returns whether passed container matches filtering criteria
@@ -35,13 +35,13 @@ func (s *Server) ListPodSandbox(ctx context.Context, req *types.ListPodSandboxRe
 	filter := req.Filter
 	// Filter by pod id first.
 	if filter != nil {
-		if filter.ID != "" {
-			id, err := s.PodIDIndex().Get(filter.ID)
+		if filter.Id != "" {
+			id, err := s.PodIDIndex().Get(filter.Id)
 			if err != nil {
 				// Not finding an ID in a filtered list should not be considered
 				// and error; it might have been deleted when stop was done.
 				// Log and return an empty struct.
-				log.Warnf(ctx, "Unable to find pod %s with filter", filter.ID)
+				log.Warnf(ctx, "Unable to find pod %s with filter", filter.Id)
 				return &types.ListPodSandboxResponse{}, nil
 			}
 			sb := s.getSandbox(id)
@@ -59,9 +59,9 @@ func (s *Server) ListPodSandbox(ctx context.Context, req *types.ListPodSandboxRe
 			continue
 		}
 
-		rStatus := types.PodSandboxStateSandboxNotReady
+		rStatus := types.PodSandboxState_SANDBOX_NOTREADY
 		if sb.Ready(false) {
-			rStatus = types.PodSandboxStateSandboxReady
+			rStatus = types.PodSandboxState_SANDBOX_READY
 		}
 
 		pod := sb.CRISandbox()

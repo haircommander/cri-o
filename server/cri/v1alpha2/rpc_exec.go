@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -11,7 +11,7 @@ func (s *service) Exec(
 	ctx context.Context, req *pb.ExecRequest,
 ) (*pb.ExecResponse, error) {
 	r := &types.ExecRequest{
-		ContainerID: req.ContainerId,
+		ContainerId: req.ContainerId,
 		Cmd:         req.Cmd,
 		Tty:         req.Tty,
 		Stdin:       req.Stdin,

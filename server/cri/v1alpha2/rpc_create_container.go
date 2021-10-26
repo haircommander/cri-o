@@ -3,7 +3,8 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	typeconv "github.com/cri-o/cri-o/server/cri/v1"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -11,9 +12,9 @@ func (s *service) CreateContainer(
 	ctx context.Context, req *pb.CreateContainerRequest,
 ) (*pb.CreateContainerResponse, error) {
 	r := &types.CreateContainerRequest{
-		PodSandboxID:  req.PodSandboxId,
-		Config:        types.NewContainerConfig(),
-		SandboxConfig: types.NewPodSandboxConfig(),
+		PodSandboxId:  req.PodSandboxId,
+		Config:        typeconv.NewContainerConfig(),
+		SandboxConfig: typeconv.NewPodSandboxConfig(),
 	}
 	if req.Config != nil {
 		r.Config = &types.ContainerConfig{
@@ -26,7 +27,7 @@ func (s *service) CreateContainer(
 			Stdin:       req.Config.Stdin,
 			StdinOnce:   req.Config.StdinOnce,
 			Tty:         req.Config.Tty,
-			Linux:       types.NewLinuxContainerConfig(),
+			Linux:       typeconv.NewLinuxContainerConfig(),
 		}
 		if req.Config.Metadata != nil {
 			r.Config.Metadata = &types.ContainerMetadata{
@@ -41,16 +42,16 @@ func (s *service) CreateContainer(
 			}
 		}
 		if req.Config.Linux != nil {
-			r.Config.Linux = types.NewLinuxContainerConfig()
+			r.Config.Linux = typeconv.NewLinuxContainerConfig()
 			if req.Config.Linux.Resources != nil {
 				r.Config.Linux.Resources = &types.LinuxContainerResources{
-					CPUPeriod:          req.Config.Linux.Resources.CpuPeriod,
-					CPUQuota:           req.Config.Linux.Resources.CpuQuota,
-					CPUShares:          req.Config.Linux.Resources.CpuShares,
+					CpuPeriod:          req.Config.Linux.Resources.CpuPeriod,
+					CpuQuota:           req.Config.Linux.Resources.CpuQuota,
+					CpuShares:          req.Config.Linux.Resources.CpuShares,
 					MemoryLimitInBytes: req.Config.Linux.Resources.MemoryLimitInBytes,
 					OomScoreAdj:        req.Config.Linux.Resources.OomScoreAdj,
-					CPUsetCPUs:         req.Config.Linux.Resources.CpusetCpus,
-					CPUsetMems:         req.Config.Linux.Resources.CpusetMems,
+					CpusetCpus:         req.Config.Linux.Resources.CpusetCpus,
+					CpusetMems:         req.Config.Linux.Resources.CpusetMems,
 				}
 				hugepageLimits := []*types.HugepageLimit{}
 				for _, x := range req.Config.Linux.Resources.HugepageLimits {
@@ -99,7 +100,7 @@ func (s *service) CreateContainer(
 						Network:  types.NamespaceMode(req.Config.Linux.SecurityContext.NamespaceOptions.Network),
 						Pid:      types.NamespaceMode(req.Config.Linux.SecurityContext.NamespaceOptions.Pid),
 						Ipc:      types.NamespaceMode(req.Config.Linux.SecurityContext.NamespaceOptions.Ipc),
-						TargetID: req.Config.Linux.SecurityContext.NamespaceOptions.TargetId,
+						TargetId: req.Config.Linux.SecurityContext.NamespaceOptions.TargetId,
 					}
 				}
 				if req.Config.Linux.SecurityContext.SelinuxOptions != nil {
@@ -159,7 +160,7 @@ func (s *service) CreateContainer(
 			LogDirectory: req.SandboxConfig.LogDirectory,
 			Labels:       req.SandboxConfig.Labels,
 			Annotations:  req.SandboxConfig.Annotations,
-			Linux:        types.NewLinuxPodSandboxConfig(),
+			Linux:        typeconv.NewLinuxPodSandboxConfig(),
 		}
 		if req.SandboxConfig.DnsConfig != nil {
 			r.SandboxConfig.DNSConfig = &types.DNSConfig{
@@ -171,7 +172,7 @@ func (s *service) CreateContainer(
 		if req.SandboxConfig.Metadata != nil {
 			r.SandboxConfig.Metadata = &types.PodSandboxMetadata{
 				Name:      req.SandboxConfig.Metadata.Name,
-				UID:       req.SandboxConfig.Metadata.Uid,
+				Uid:       req.SandboxConfig.Metadata.Uid,
 				Namespace: req.SandboxConfig.Metadata.Namespace,
 				Attempt:   req.SandboxConfig.Metadata.Attempt,
 			}
@@ -190,7 +191,7 @@ func (s *service) CreateContainer(
 			r.SandboxConfig.Linux = &types.LinuxPodSandboxConfig{
 				CgroupParent:    req.SandboxConfig.Linux.CgroupParent,
 				Sysctls:         req.SandboxConfig.Linux.Sysctls,
-				SecurityContext: types.NewLinuxSandboxSecurityContext(),
+				SecurityContext: typeconv.NewLinuxSandboxSecurityContext(),
 			}
 			if req.SandboxConfig.Linux.SecurityContext != nil {
 				r.SandboxConfig.Linux.SecurityContext = &types.LinuxSandboxSecurityContext{
@@ -218,7 +219,7 @@ func (s *service) CreateContainer(
 						Network:  types.NamespaceMode(req.SandboxConfig.Linux.SecurityContext.NamespaceOptions.Network),
 						Pid:      types.NamespaceMode(req.SandboxConfig.Linux.SecurityContext.NamespaceOptions.Pid),
 						Ipc:      types.NamespaceMode(req.SandboxConfig.Linux.SecurityContext.NamespaceOptions.Ipc),
-						TargetID: req.SandboxConfig.Linux.SecurityContext.NamespaceOptions.TargetId,
+						TargetId: req.SandboxConfig.Linux.SecurityContext.NamespaceOptions.TargetId,
 					}
 				}
 				if req.SandboxConfig.Linux.SecurityContext.SelinuxOptions != nil {
@@ -246,5 +247,5 @@ func (s *service) CreateContainer(
 	if err != nil {
 		return nil, err
 	}
-	return &pb.CreateContainerResponse{ContainerId: res.ContainerID}, nil
+	return &pb.CreateContainerResponse{ContainerId: res.ContainerId}, nil
 }

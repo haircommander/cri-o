@@ -3,14 +3,14 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
 func (s *service) ContainerStats(
 	ctx context.Context, req *pb.ContainerStatsRequest,
 ) (*pb.ContainerStatsResponse, error) {
-	r := &types.ContainerStatsRequest{ContainerID: req.ContainerId}
+	r := &types.ContainerStatsRequest{ContainerId: req.ContainerId}
 	res, err := s.server.ContainerStats(ctx, r)
 	if err != nil {
 		return nil, err
@@ -20,7 +20,7 @@ func (s *service) ContainerStats(
 		resp.Stats = &pb.ContainerStats{}
 		if res.Stats.Attributes != nil {
 			resp.Stats.Attributes = &pb.ContainerAttributes{
-				Id:          res.Stats.Attributes.ID,
+				Id:          res.Stats.Attributes.Id,
 				Labels:      res.Stats.Attributes.Labels,
 				Annotations: res.Stats.Attributes.Annotations,
 			}
@@ -31,13 +31,13 @@ func (s *service) ContainerStats(
 				}
 			}
 		}
-		if res.Stats.CPU != nil {
+		if res.Stats.Cpu != nil {
 			resp.Stats.Cpu = &pb.CpuUsage{
-				Timestamp: res.Stats.CPU.Timestamp,
+				Timestamp: res.Stats.Cpu.Timestamp,
 			}
-			if res.Stats.CPU.UsageCoreNanoSeconds != nil {
+			if res.Stats.Cpu.UsageCoreNanoSeconds != nil {
 				resp.Stats.Cpu.UsageCoreNanoSeconds = &pb.UInt64Value{
-					Value: res.Stats.CPU.UsageCoreNanoSeconds.Value,
+					Value: res.Stats.Cpu.UsageCoreNanoSeconds.Value,
 				}
 			}
 		}
@@ -55,9 +55,9 @@ func (s *service) ContainerStats(
 			resp.Stats.WritableLayer = &pb.FilesystemUsage{
 				Timestamp: res.Stats.WritableLayer.Timestamp,
 			}
-			if res.Stats.WritableLayer.FsID != nil {
+			if res.Stats.WritableLayer.FsId != nil {
 				resp.Stats.WritableLayer.FsId = &pb.FilesystemIdentifier{
-					Mountpoint: res.Stats.WritableLayer.FsID.Mountpoint,
+					Mountpoint: res.Stats.WritableLayer.FsId.Mountpoint,
 				}
 			}
 			if res.Stats.WritableLayer.UsedBytes != nil {

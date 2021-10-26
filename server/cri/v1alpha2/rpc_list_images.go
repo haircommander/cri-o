@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -35,15 +35,15 @@ func (s *service) ListImages(
 			continue
 		}
 		image := &pb.Image{
-			Id:          x.ID,
+			Id:          x.Id,
 			RepoTags:    x.RepoTags,
 			RepoDigests: x.RepoDigests,
 			Size_:       x.Size,
 			Username:    x.Username,
 		}
-		if x.UID != nil {
+		if x.Uid != nil {
 			image.Uid = &pb.Int64Value{
-				Value: x.UID.Value,
+				Value: x.Uid.Value,
 			}
 		}
 		if x.Spec != nil {

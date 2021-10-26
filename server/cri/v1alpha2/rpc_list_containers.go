@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -14,9 +14,9 @@ func (s *service) ListContainers(
 
 	if req.Filter != nil {
 		r.Filter = &types.ContainerFilter{
-			ID:            req.Filter.Id,
+			Id:            req.Filter.Id,
 			LabelSelector: req.Filter.LabelSelector,
-			PodSandboxID:  req.Filter.PodSandboxId,
+			PodSandboxId:  req.Filter.PodSandboxId,
 		}
 		if req.Filter.State != nil {
 			r.Filter.State = &types.ContainerStateValue{
@@ -39,8 +39,8 @@ func (s *service) ListContainers(
 			continue
 		}
 		container := &pb.Container{
-			Id:           x.ID,
-			PodSandboxId: x.PodSandboxID,
+			Id:           x.Id,
+			PodSandboxId: x.PodSandboxId,
 			State:        pb.ContainerState(x.State),
 			ImageRef:     x.ImageRef,
 			CreatedAt:    x.CreatedAt,

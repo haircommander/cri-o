@@ -29,7 +29,6 @@ import (
 	ann "github.com/cri-o/cri-o/pkg/annotations"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/pkg/sandbox"
-	"github.com/cri-o/cri-o/server/cri/types"
 	"github.com/cri-o/cri-o/utils"
 	json "github.com/json-iterator/go"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
@@ -39,6 +38,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/api/resource"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
@@ -278,7 +278,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	pathsToChown := []string{}
 
 	// we need to fill in the container name, as it is not present in the request. Luckily, it is a constant.
-	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().Labels), types.InfraContainerName)
+	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().Labels), utils.PodInfraName)
 
 	kubeName := sbox.Config().Metadata.Name
 	namespace := sbox.Config().Metadata.Namespace
@@ -311,13 +311,13 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		}
 		cachedID, resourceErr := s.getResourceOrWait(ctx, sbox.Name(), "sandbox")
 		if resourceErr == nil {
-			return &types.RunPodSandboxResponse{PodSandboxID: cachedID}, nil
+			return &types.RunPodSandboxResponse{PodSandboxId: cachedID}, nil
 		}
 		return nil, errors.Wrapf(err, resourceErr.Error())
 	}
 
 	securityContext := sbox.Config().Linux.SecurityContext
-	hostNetwork := securityContext.NamespaceOptions.Network == types.NamespaceModeNODE
+	hostNetwork := securityContext.NamespaceOptions.Network == types.NamespaceMode_NODE
 
 	if err := s.config.CNIPluginReadyOrError(); err != nil && !hostNetwork {
 		// if the cni plugin isn't ready yet, we should wait until it is
@@ -378,7 +378,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		"",
 		containerName,
 		kubeName,
-		sbox.Config().Metadata.UID,
+		sbox.Config().Metadata.Uid,
 		namespace,
 		attempt,
 		idMappingsOptions,
@@ -446,7 +446,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 
 	// Add special container name label for the infra container
 	if labels != nil {
-		labels[kubeletTypes.KubernetesContainerNameLabel] = types.InfraContainerName
+		labels[kubeletTypes.KubernetesContainerNameLabel] = utils.PodInfraName
 	}
 	labelsJSON, err := json.Marshal(labels)
 	if err != nil {
@@ -471,8 +471,8 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		return nil, err
 	}
 
-	hostIPC := securityContext.NamespaceOptions.Ipc == types.NamespaceModeNODE
-	hostPID := securityContext.NamespaceOptions.Pid == types.NamespaceModeNODE
+	hostIPC := securityContext.NamespaceOptions.Ipc == types.NamespaceMode_NODE
+	hostPID := securityContext.NamespaceOptions.Pid == types.NamespaceMode_NODE
 
 	// Don't use SELinux separation with Host Pid or IPC Namespace or privileged.
 	if hostPID || hostIPC {
@@ -761,7 +761,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	sb.AddHostnamePath(hostnamePath)
 
 	if sandboxIDMappings != nil {
-		if securityContext.NamespaceOptions.Ipc == types.NamespaceModeNODE {
+		if securityContext.NamespaceOptions.Ipc == types.NamespaceMode_NODE {
 			g.RemoveMount("/dev/mqueue")
 			mqueue := spec.Mount{
 				Type:        "bind",
@@ -782,7 +782,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 			}
 			g.AddMount(sysMnt)
 		}
-		if securityContext.NamespaceOptions.Pid == types.NamespaceModeNODE {
+		if securityContext.NamespaceOptions.Pid == types.NamespaceMode_NODE {
 			g.RemoveMount("/proc")
 			proc := spec.Mount{
 				Type:        "bind",
@@ -938,7 +938,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	sb.SetCreated()
 
 	log.Infof(ctx, "Ran pod sandbox %s with infra container: %s", container.ID(), container.Description())
-	resp = &types.RunPodSandboxResponse{PodSandboxID: sbox.ID()}
+	resp = &types.RunPodSandboxResponse{PodSandboxId: sbox.ID()}
 	return resp, nil
 }
 

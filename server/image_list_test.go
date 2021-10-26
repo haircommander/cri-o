@@ -5,11 +5,11 @@ import (
 
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/server"
-	"github.com/cri-o/cri-o/server/cri/types"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/go-digest"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // The actual test suite

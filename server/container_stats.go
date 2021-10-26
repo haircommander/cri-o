@@ -6,9 +6,9 @@ import (
 
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
-	"github.com/cri-o/cri-o/server/cri/types"
 	crioStorage "github.com/cri-o/cri-o/utils"
 	"github.com/pkg/errors"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerStats, container *oci.Container) *types.ContainerStats {
@@ -22,14 +22,14 @@ func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerSt
 		}
 		writableLayer = &types.FilesystemUsage{
 			Timestamp:  stats.SystemNano,
-			FsID:       &types.FilesystemIdentifier{Mountpoint: container.MountPoint()},
+			FsId:       &types.FilesystemIdentifier{Mountpoint: container.MountPoint()},
 			UsedBytes:  &types.UInt64Value{Value: bytesUsed},
 			InodesUsed: &types.UInt64Value{Value: inodeUsed},
 		}
 	}
 	return &types.ContainerStats{
 		Attributes: &types.ContainerAttributes{
-			ID: container.ID(),
+			Id: container.ID(),
 			Metadata: &types.ContainerMetadata{
 				Name:    container.Metadata().Name,
 				Attempt: container.Metadata().Attempt,
@@ -37,7 +37,7 @@ func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerSt
 			Labels:      container.Labels(),
 			Annotations: container.Annotations(),
 		},
-		CPU: &types.CPUUsage{
+		Cpu: &types.CpuUsage{
 			Timestamp:            stats.SystemNano,
 			UsageCoreNanoSeconds: &types.UInt64Value{Value: stats.CPUNano},
 		},
@@ -52,7 +52,7 @@ func (s *Server) buildContainerStats(ctx context.Context, stats *oci.ContainerSt
 // ContainerStats returns stats of the container. If the container does not
 // exist, the call returns an error.
 func (s *Server) ContainerStats(ctx context.Context, req *types.ContainerStatsRequest) (*types.ContainerStatsResponse, error) {
-	container, err := s.GetContainerFromShortID(req.ContainerID)
+	container, err := s.GetContainerFromShortID(req.ContainerId)
 	if err != nil {
 		return nil, err
 	}

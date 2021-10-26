@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -14,7 +14,7 @@ func (s *service) ListPodSandbox(
 
 	if req.Filter != nil {
 		r.Filter = &types.PodSandboxFilter{
-			ID:            req.Filter.Id,
+			Id:            req.Filter.Id,
 			LabelSelector: req.Filter.LabelSelector,
 		}
 		if req.Filter.State != nil {
@@ -38,7 +38,7 @@ func (s *service) ListPodSandbox(
 			continue
 		}
 		sandbox := &pb.PodSandbox{
-			Id:             x.ID,
+			Id:             x.Id,
 			State:          pb.PodSandboxState(x.State),
 			CreatedAt:      x.CreatedAt,
 			Labels:         x.Labels,
@@ -49,7 +49,7 @@ func (s *service) ListPodSandbox(
 			sandbox.Metadata = &pb.PodSandboxMetadata{
 				Name:      x.Metadata.Name,
 				Namespace: x.Metadata.Namespace,
-				Uid:       x.Metadata.UID,
+				Uid:       x.Metadata.Uid,
 				Attempt:   x.Metadata.Attempt,
 			}
 		}

@@ -18,8 +18,8 @@ func (s *service) ImageFsInfo(
 		item := &pb.FilesystemUsage{
 			Timestamp: x.Timestamp,
 		}
-		if x.FsID != nil {
-			item.FsId = &pb.FilesystemIdentifier{Mountpoint: x.FsID.Mountpoint}
+		if x.FsId != nil {
+			item.FsId = &pb.FilesystemIdentifier{Mountpoint: x.FsId.Mountpoint}
 		}
 		if x.UsedBytes != nil {
 			item.UsedBytes = &pb.UInt64Value{Value: x.UsedBytes.Value}

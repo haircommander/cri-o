@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -14,9 +14,9 @@ func (s *service) ListContainerStats(
 
 	if req.Filter != nil {
 		r.Filter = &types.ContainerStatsFilter{
-			ID:            req.Filter.Id,
+			Id:            req.Filter.Id,
 			LabelSelector: req.Filter.LabelSelector,
-			PodSandboxID:  req.Filter.PodSandboxId,
+			PodSandboxId:  req.Filter.PodSandboxId,
 		}
 	}
 
@@ -48,13 +48,13 @@ func (s *service) ListContainerStats(
 				}
 			}
 		}
-		if x.CPU != nil {
+		if x.Cpu != nil {
 			stats.Cpu = &pb.CpuUsage{
-				Timestamp: x.CPU.Timestamp,
+				Timestamp: x.Cpu.Timestamp,
 			}
-			if x.CPU.UsageCoreNanoSeconds != nil {
+			if x.Cpu.UsageCoreNanoSeconds != nil {
 				stats.Cpu.UsageCoreNanoSeconds = &pb.UInt64Value{
-					Value: x.CPU.UsageCoreNanoSeconds.Value,
+					Value: x.Cpu.UsageCoreNanoSeconds.Value,
 				}
 			}
 		}

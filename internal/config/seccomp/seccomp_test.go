@@ -6,11 +6,11 @@ import (
 
 	containers_seccomp "github.com/containers/common/pkg/seccomp"
 	"github.com/cri-o/cri-o/internal/config/seccomp"
-	"github.com/cri-o/cri-o/server/cri/types"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opencontainers/runtime-tools/generate"
 	k8sV1 "k8s.io/api/core/v1"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // The actual test suite

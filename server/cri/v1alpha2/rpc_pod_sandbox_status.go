@@ -3,7 +3,7 @@ package v1alpha2
 import (
 	"context"
 
-	"github.com/cri-o/cri-o/server/cri/types"
+	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -11,7 +11,7 @@ func (s *service) PodSandboxStatus(
 	ctx context.Context, req *pb.PodSandboxStatusRequest,
 ) (*pb.PodSandboxStatusResponse, error) {
 	r := &types.PodSandboxStatusRequest{
-		PodSandboxID: req.PodSandboxId,
+		PodSandboxId: req.PodSandboxId,
 		Verbose:      req.Verbose,
 	}
 	res, err := s.server.PodSandboxStatus(ctx, r)
@@ -23,7 +23,7 @@ func (s *service) PodSandboxStatus(
 	}
 	if res.Status != nil {
 		resp.Status = &pb.PodSandboxStatus{
-			Id:             res.Status.ID,
+			Id:             res.Status.Id,
 			State:          pb.PodSandboxState(res.Status.State),
 			CreatedAt:      res.Status.CreatedAt,
 			Labels:         res.Status.Labels,
@@ -33,7 +33,7 @@ func (s *service) PodSandboxStatus(
 		if res.Status.Metadata != nil {
 			resp.Status.Metadata = &pb.PodSandboxMetadata{
 				Name:      res.Status.Metadata.Name,
-				Uid:       res.Status.Metadata.UID,
+				Uid:       res.Status.Metadata.Uid,
 				Namespace: res.Status.Metadata.Namespace,
 				Attempt:   res.Status.Metadata.Attempt,
 			}
@@ -57,7 +57,7 @@ func (s *service) PodSandboxStatus(
 						Network:  pb.NamespaceMode(res.Status.Linux.Namespaces.Options.Network),
 						Pid:      pb.NamespaceMode(res.Status.Linux.Namespaces.Options.Pid),
 						Ipc:      pb.NamespaceMode(res.Status.Linux.Namespaces.Options.Ipc),
-						TargetId: res.Status.Linux.Namespaces.Options.TargetID,
+						TargetId: res.Status.Linux.Namespaces.Options.TargetId,
 					}
 				}
 			}
