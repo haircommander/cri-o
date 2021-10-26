@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package oci
@@ -14,7 +15,7 @@ import (
 
 	"github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/cri-o/cri-o/internal/config/node"
-	"github.com/cri-o/cri-o/server/cri/types"
+	"github.com/cri-o/cri-o/utils"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/pkg/errors"
@@ -34,7 +35,7 @@ func (r *runtimeOCI) createContainerPlatform(c *Container, cgroupParent string, 
 		},
 	}
 	// Mutate our newly created spec to find the customizations that are needed for conmon
-	if err := r.config.Workloads.MutateSpecGivenAnnotations(types.InfraContainerName, g, c.Annotations()); err != nil {
+	if err := r.config.Workloads.MutateSpecGivenAnnotations(utils.PodInfraName, g, c.Annotations()); err != nil {
 		return err
 	}
 
