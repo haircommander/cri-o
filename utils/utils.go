@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/containers/podman/v3/pkg/lookup"
 	"github.com/cri-o/cri-o/internal/dbusmgr"
@@ -53,8 +54,7 @@ func StatusToExitCode(status int) int {
 }
 
 // RunUnderSystemdScope adds the specified pid to a systemd scope
-func RunUnderSystemdScope(mgr *dbusmgr.DbusConnManager, pid int, slice, unitName string, properties ...systemdDbus.Property) error {
-	var err error
+func RunUnderSystemdScope(mgr *dbusmgr.DbusConnManager, pid int, slice, unitName string, properties ...systemdDbus.Property) (err error) {
 	// sanity check
 	if mgr == nil {
 		return errors.New("dbus manager is nil")
@@ -71,14 +71,18 @@ func RunUnderSystemdScope(mgr *dbusmgr.DbusConnManager, pid int, slice, unitName
 	ch := make(chan string)
 	if err := mgr.RetryOnDisconnect(func(c *systemdDbus.Conn) error {
 		_, err = c.StartTransientUnit(unitName, "replace", properties, ch)
-		return err
+		return errors.Wrap(err, "start transient unit")
 	}); err != nil {
 		return err
 	}
 
 	// Block until job is started
-	<-ch
-	close(ch)
+	select {
+	case <-ch:
+		close(ch)
+	case <-time.After(time.Minute * 6):
+		return errors.Errorf("timed out moving conmon with pid %d to cgroup", pid)
+	}
 
 	return nil
 }
