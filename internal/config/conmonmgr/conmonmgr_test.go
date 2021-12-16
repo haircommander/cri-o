@@ -16,6 +16,7 @@ var _ = t.Describe("ConmonManager", func() {
 	t.Describe("New", func() {
 		BeforeEach(func() {
 			runner = runnerMock.NewMockCommandRunner(mockCtrl)
+			cmdrunner.SetMocked(runner)
 		})
 		It("should fail when path not absolute", func() {
 			// Given
@@ -24,7 +25,7 @@ var _ = t.Describe("ConmonManager", func() {
 			)
 
 			// When
-			mgr, err := newWithCommandRunner("", runner)
+			mgr, err := New("")
 
 			// Then
 			Expect(err).NotTo(BeNil())
@@ -37,7 +38,7 @@ var _ = t.Describe("ConmonManager", func() {
 			)
 
 			// When
-			mgr, err := newWithCommandRunner(validPath, runner)
+			mgr, err := New(validPath, runner)
 
 			// Then
 			Expect(err).NotTo(BeNil())
@@ -50,7 +51,7 @@ var _ = t.Describe("ConmonManager", func() {
 			)
 
 			// When
-			mgr, err := newWithCommandRunner(validPath, runner)
+			mgr, err := New(validPath, runner)
 
 			// Then
 			Expect(err).NotTo(BeNil())
@@ -63,7 +64,7 @@ var _ = t.Describe("ConmonManager", func() {
 			)
 
 			// When
-			mgr, err := newWithCommandRunner(validPath, runner)
+			mgr, err := New(validPath, runner)
 
 			// Then
 			Expect(err).To(BeNil())
@@ -76,7 +77,7 @@ var _ = t.Describe("ConmonManager", func() {
 			)
 
 			// When
-			mgr, err := newWithCommandRunner(validPath, runner)
+			mgr, err := New(validPath, runner)
 
 			// Then
 			Expect(err).To(BeNil())
