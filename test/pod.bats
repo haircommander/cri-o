@@ -156,6 +156,56 @@ function teardown() {
 	[[ "$output" == *"net.ipv4.ip_forward = 1"* ]]
 }
 
+@test "don't pass pod sysctls to runtime if host IPC" {
+	if test -n "$CONTAINER_UID_MAPPINGS"; then
+		skip "userNS enabled"
+	fi
+
+	start_crio
+
+	jq '	  .linux.sysctls = {
+			"kernel.msgmax": "16384"
+		} |
+			  .linux.security_context.namespace_options = {
+			host_ipc: true
+		}' \
+		"$TESTDATA"/sandbox_config.json > "$TESTDIR"/sandbox.json
+
+	pod_id=$(crictl runp "$TESTDIR"/sandbox.json)
+	ctr_id=$(crictl create "$pod_id" "$TESTDATA"/container_redis.json "$TESTDIR"/sandbox.json)
+	crictl start "$ctr_id"
+
+	output=$(crictl exec --sync "$ctr_id" sysctl kernel.msgmax)
+	[[ "$output" != *"kernel.msgmax = 16384"* ]]
+}
+
+@test "don't pass pod sysctls to runtime if host network" {
+	if test -n "$CONTAINER_UID_MAPPINGS"; then
+		skip "userNS enabled"
+	fi
+
+	start_crio
+
+	jq '	  .linux.sysctls = {
+			"net.ipv4.ip_local_port_range": "1024 65000",
+			"net.ipv4.ip_forward": "1",
+		} |
+			  .linux.security_context.namespace_options = {
+			host_network: true
+		}' \
+		"$TESTDATA"/sandbox_config.json > "$TESTDIR"/sandbox.json
+
+	pod_id=$(crictl runp "$TESTDIR"/sandbox.json)
+	ctr_id=$(crictl create "$pod_id" "$TESTDATA"/container_redis.json "$TESTDIR"/sandbox.json)
+	crictl start "$ctr_id"
+
+	output=$(crictl exec --sync "$ctr_id" sysctl net.ipv4.ip_local_port_range)
+	[[ "$output" != *"net.ipv4.ip_local_port_range = 1024	65000"* ]]
+
+	output=$(crictl exec --sync "$ctr_id" sysctl net.ipv4.ip_forward)
+	[[ "$output" != *"net.ipv4.ip_forward = 1"* ]]
+}
+
 @test "pod stop idempotent" {
 	start_crio
 	pod_id=$(crictl runp "$TESTDATA"/sandbox_config.json)
