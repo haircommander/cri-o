@@ -57,6 +57,43 @@ func (c *Config) LoadProfile(profilePath string) error {
 		c.profile = seccomp.DefaultProfile()
 		logrus.Info("No seccomp profile specified, using the internal default")
 
+		c.profile.DefaultAction = seccomp.ActAllow
+		c.profile.DefaultErrnoRet = nil
+		c.profile.Syscalls = []*seccomp.Syscall{
+			&seccomp.Syscall{
+				Names: []string{
+					"bpf",
+					"clone",
+					"clone3",
+					"fanotify_init",
+					"fsconfig",
+					"fsmount",
+					"fsopen",
+					"fspick",
+					"lookup_dcookie",
+					"mount",
+					"move_mount",
+					"name_to_handle_at",
+					"open_tree",
+					"perf_event_open",
+					"quotactl",
+					"setdomainname",
+					"sethostname",
+					"setns",
+					// "syslog",
+					"umount",
+					"umount2",
+					"unshare",
+				},
+				Action: seccomp.ActErrno,
+				Excludes: seccomp.Filter{
+					Caps: []string{
+						"CAP_SYS_ADMIN",
+					},
+				},
+			},
+		}
+
 		if logrus.IsLevelEnabled(logrus.TraceLevel) {
 			profileString, err := json.MarshalToString(c.profile)
 			if err != nil {
