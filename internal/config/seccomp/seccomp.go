@@ -60,7 +60,7 @@ func (c *Config) LoadProfile(profilePath string) error {
 		c.profile.DefaultAction = seccomp.ActAllow
 		c.profile.DefaultErrnoRet = nil
 		c.profile.Syscalls = []*seccomp.Syscall{
-			&seccomp.Syscall{
+			{
 				Names: []string{
 					"bpf",
 					"clone",
