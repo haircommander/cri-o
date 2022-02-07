@@ -63,7 +63,7 @@ func (c *Config) LoadProfile(profilePath string) error {
 			{
 				Names: []string{
 					"bpf",
-					"clone",
+					// "clone",
 					"clone3",
 					"fanotify_init",
 					"fsconfig",
