@@ -9,6 +9,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 	cstorage "github.com/containers/storage"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/pkg/errors"
@@ -47,8 +48,8 @@ func New(cs parentServerIface) *StatsServer {
 		shutdown:          make(chan struct{}, 1),
 		alreadyShutdown:   false,
 		collectionPeriod:  time.Duration(cs.Config().StatsCollectionPeriod) * time.Second,
-		sboxStats:         make(map[string]*types.PodSandboxStats),
-		ctrStats:          make(map[string]*types.ContainerStats),
+		sboxStats:         make(map[string]*statstypes.PodSandboxStats),
+		ctrStats:          make(map[string]*statstypes.ContainerStats),
 		parentServerIface: cs,
 	}
 	go ss.updateLoop()
