@@ -16,6 +16,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 	conmonconfig "github.com/containers/conmon/runner/config"
 	"github.com/containers/storage/pkg/pools"
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/server/metrics"
@@ -946,7 +947,7 @@ func (r *runtimeOCI) WaitContainerStateStopped(ctx context.Context, c *Container
 }
 
 // ContainerStats provides statistics of a container.
-func (r *runtimeOCI) ContainerStats(ctx context.Context, c *Container, cgroup string) (*types.ContainerStats, error) {
+func (r *runtimeOCI) ContainerStats(ctx context.Context, c *Container, cgroup string) (*statstypes.ContainerStats, error) {
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
 	return r.containerStats(c, cgroup)

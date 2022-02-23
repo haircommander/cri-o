@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/typeurl"
 	conmonconfig "github.com/containers/conmon/runner/config"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/server/metrics"
 	"github.com/cri-o/cri-o/utils"
@@ -822,7 +823,7 @@ func (r *runtimeVM) UnpauseContainer(ctx context.Context, c *Container) error {
 }
 
 // ContainerStats provides statistics of a container.
-func (r *runtimeVM) ContainerStats(ctx context.Context, c *Container, _ string) (*types.ContainerStats, error) {
+func (r *runtimeVM) ContainerStats(ctx context.Context, c *Container, _ string) (*statstypes.ContainerStats, error) {
 	log.Debugf(ctx, "RuntimeVM.ContainerStats() start")
 	defer log.Debugf(ctx, "RuntimeVM.ContainerStats() end")
 
@@ -853,7 +854,7 @@ func (r *runtimeVM) ContainerStats(ctx context.Context, c *Container, _ string) 
 	return metricsToCtrStats(ctx, c, m), nil
 }
 
-func metricsToCtrStats(ctx context.Context, c *Container, m *cgroups.Metrics) *types.ContainerStats {
+func metricsToCtrStats(ctx context.Context, c *Container, m *cgroups.Metrics) *statstypes.ContainerStats {
 	var (
 		cpuNano         uint64
 		memLimit        uint64
@@ -883,19 +884,22 @@ func metricsToCtrStats(ctx context.Context, c *Container, m *cgroups.Metrics) *t
 		majorPageFaults = m.Memory.PgMajFault
 	}
 
-	return &types.ContainerStats{
-		Attributes: c.CRIAttributes(),
-		Cpu: &types.CpuUsage{
-			Timestamp:            systemNano,
-			UsageCoreNanoSeconds: &types.UInt64Value{Value: cpuNano},
-		},
-		Memory: &types.MemoryUsage{
-			Timestamp:       systemNano,
-			WorkingSetBytes: &types.UInt64Value{Value: workingSetBytes},
-			PageFaults:      &types.UInt64Value{Value: pageFaults},
-			MajorPageFaults: &types.UInt64Value{Value: majorPageFaults},
-			RssBytes:        &types.UInt64Value{Value: rssBytes},
-			AvailableBytes:  &types.UInt64Value{Value: memUsage - memLimit},
+	// TODO FIXME: no other fields populated
+	return &statstypes.ContainerStats{
+		CRIStats: &types.ContainerStats{
+			Attributes: c.CRIAttributes(),
+			Cpu: &types.CpuUsage{
+				Timestamp:            systemNano,
+				UsageCoreNanoSeconds: &types.UInt64Value{Value: cpuNano},
+			},
+			Memory: &types.MemoryUsage{
+				Timestamp:       systemNano,
+				WorkingSetBytes: &types.UInt64Value{Value: workingSetBytes},
+				PageFaults:      &types.UInt64Value{Value: pageFaults},
+				MajorPageFaults: &types.UInt64Value{Value: majorPageFaults},
+				RssBytes:        &types.UInt64Value{Value: rssBytes},
+				AvailableBytes:  &types.UInt64Value{Value: memUsage - memLimit},
+			},
 		},
 	}
 }

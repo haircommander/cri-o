@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/pkg/config"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -64,7 +65,7 @@ type RuntimeImpl interface {
 	UpdateContainerStatus(context.Context, *Container) error
 	PauseContainer(context.Context, *Container) error
 	UnpauseContainer(context.Context, *Container) error
-	ContainerStats(context.Context, *Container, string) (*types.ContainerStats, error)
+	ContainerStats(context.Context, *Container, string) (*statstypes.ContainerStats, error)
 	SignalContainer(context.Context, *Container, syscall.Signal) error
 	AttachContainer(context.Context, *Container, io.Reader, io.WriteCloser, io.WriteCloser,
 		bool, <-chan remotecommand.TerminalSize) error
@@ -374,7 +375,7 @@ func (r *Runtime) UnpauseContainer(ctx context.Context, c *Container) error {
 }
 
 // ContainerStats provides statistics of a container.
-func (r *Runtime) ContainerStats(ctx context.Context, c *Container, cgroup string) (*types.ContainerStats, error) {
+func (r *Runtime) ContainerStats(ctx context.Context, c *Container, cgroup string) (*statstypes.ContainerStats, error) {
 	impl, err := r.RuntimeImpl(c)
 	if err != nil {
 		return nil, err

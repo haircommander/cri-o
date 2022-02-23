@@ -5,6 +5,7 @@ import (
 	"syscall"
 	"time"
 
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/utils"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
@@ -66,9 +67,16 @@ func newPipe() (parent, child *os.File, _ error) {
 	return os.NewFile(uintptr(fds[1]), "parent"), os.NewFile(uintptr(fds[0]), "child"), nil
 }
 
-func (r *runtimeOCI) containerStats(ctr *Container, cgroup string) (*types.ContainerStats, error) {
-	stats := &types.ContainerStats{
-		Attributes: ctr.CRIAttributes(),
+func (r *runtimeOCI) containerStats(ctr *Container, cgroup string) (*statstypes.ContainerStats, error) {
+	stats := &statstypes.ContainerStats{
+		CRIStats: &types.ContainerStats{
+			Attributes: ctr.CRIAttributes(),
+		},
+		Spec:          &statstypes.SpecUsage{},
+		CpuLoad:       &statstypes.CpuLoadUsage{},
+		Cpu:           &statstypes.CpuUsage{},
+		Memory:        &statstypes.MemoryUsage{},
+		WritableLayer: &statstypes.FilesystemUsage{},
 	}
 
 	if ctr.Spoofed() {
@@ -80,13 +88,13 @@ func (r *runtimeOCI) containerStats(ctr *Container, cgroup string) (*types.Conta
 	// (such as critest) assume we can call stats on a cgroupless container
 	if cgroup == "" {
 		systemNano := time.Now().UnixNano()
-		stats.Cpu = &types.CpuUsage{
+		stats.Cpu.CRIUsage = &types.CpuUsage{
 			Timestamp: systemNano,
 		}
-		stats.Memory = &types.MemoryUsage{
+		stats.Memory.CRIUsage = &types.MemoryUsage{
 			Timestamp: systemNano,
 		}
-		stats.WritableLayer = &types.FilesystemUsage{
+		stats.WritableLayer.CRIUsage = &types.FilesystemUsage{
 			Timestamp: systemNano,
 		}
 		return stats, nil
