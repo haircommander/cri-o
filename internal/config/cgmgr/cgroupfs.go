@@ -12,6 +12,7 @@ import (
 	"github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/containers/podman/v3/pkg/rootless"
 	"github.com/cri-o/cri-o/internal/config/node"
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/cri-o/cri-o/utils"
 	libctr "github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/fs"
@@ -21,7 +22,6 @@ import (
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // CgroupfsManager defines functionality whrn **** TODO: Update this
@@ -57,7 +57,7 @@ func (*CgroupfsManager) ContainerCgroupPath(sbParent, containerID string) string
 // PopulateContainerCgroupStats takes arguments sandbox parent cgroup, container ID, and
 // containers stats object. It fills the object with information from the cgroup found
 // given that parent and ID
-func (m *CgroupfsManager) PopulateContainerCgroupStats(sbParent, containerID string, stats *types.ContainerStats) error {
+func (m *CgroupfsManager) PopulateContainerCgroupStats(sbParent, containerID string, stats *statstypes.ContainerStats) error {
 	cgPath, err := m.ContainerCgroupAbsolutePath(sbParent, containerID)
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ func (m *CgroupfsManager) SandboxCgroupPath(sbParent, sbID string) (cgParent, cg
 
 // PopulateSandboxCgroupStats takes arguments sandbox parent cgroup and sandbox stats object
 // It fills the object with information from the cgroup found given that cgroup
-func (m *CgroupfsManager) PopulateSandboxCgroupStats(sbParent string, stats *types.PodSandboxStats) error {
+func (m *CgroupfsManager) PopulateSandboxCgroupStats(sbParent string, stats *statstypes.PodSandboxStats) error {
 	_, cgPath, err := sandboxCgroupAbsolutePath(sbParent)
 	if err != nil {
 		return err

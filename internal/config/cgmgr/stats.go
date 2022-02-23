@@ -11,24 +11,25 @@ import (
 
 	"github.com/containers/podman/v3/pkg/cgroups"
 	"github.com/cri-o/cri-o/internal/config/node"
+	statstypes "github.com/cri-o/cri-o/internal/lib/stats/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
-func populateSandboxCgroupStatsFromPath(cgroupPath string, stats *types.PodSandboxStats) error {
+func populateSandboxCgroupStatsFromPath(cgroupPath string, stats *statstypes.PodSandboxStats) error {
 	cgroupStats, err := cgroupStatsFromPath(cgroupPath)
 	if err != nil {
 		return err
 	}
 	systemNano := time.Now().UnixNano()
-	stats.Linux.Cpu = createCPUStats(systemNano, cgroupStats)
-	stats.Linux.Process = createProcessUsage(systemNano, cgroupStats)
-	stats.Linux.Memory, err = createMemoryStats(systemNano, cgroupStats, cgroupPath)
+	stats.Cpu = createCPUStats(systemNano, cgroupStats)
+	stats.Process = createProcessUsage(systemNano, cgroupStats)
+	stats.Memory, err = createMemoryStats(systemNano, cgroupStats, cgroupPath)
 	return err
 }
 
-func populateContainerCgroupStatsFromPath(cgroupPath string, stats *types.ContainerStats) error {
+func populateContainerCgroupStatsFromPath(cgroupPath string, stats *statstypes.ContainerStats) error {
 	// checks cgroup just for the container, not the entire pod
 	cgroupStats, err := cgroupStatsFromPath(cgroupPath)
 	if err != nil {
@@ -49,25 +50,29 @@ func cgroupStatsFromPath(cgroupPath string) (*cgroups.Metrics, error) {
 	return cg.Stat()
 }
 
-func createCPUStats(systemNano int64, cgroupStats *cgroups.Metrics) *types.CpuUsage {
-	return &types.CpuUsage{
-		Timestamp:            systemNano,
-		UsageCoreNanoSeconds: &types.UInt64Value{Value: cgroupStats.CPU.Usage.Total},
+func createCPUStats(systemNano int64, cgroupStats *cgroups.Metrics) *statstypes.CpuUsage {
+	return &statstypes.CpuUsage{
+		CRIUsage: &types.CpuUsage{
+			Timestamp:            systemNano,
+			UsageCoreNanoSeconds: &types.UInt64Value{Value: cgroupStats.CPU.Usage.Total},
+		},
 	}
 }
 
-func createMemoryStats(systemNano int64, cgroupStats *cgroups.Metrics, cgroupPath string) (*types.MemoryUsage, error) {
+func createMemoryStats(systemNano int64, cgroupStats *cgroups.Metrics, cgroupPath string) (*statstypes.MemoryUsage, error) {
 	memUsage := cgroupStats.Memory.Usage.Usage
 	memLimit := MemLimitGivenSystem(cgroupStats.Memory.Usage.Limit)
 
-	memory := &types.MemoryUsage{
-		Timestamp:       systemNano,
-		WorkingSetBytes: &types.UInt64Value{},
-		RssBytes:        &types.UInt64Value{},
-		PageFaults:      &types.UInt64Value{},
-		MajorPageFaults: &types.UInt64Value{},
-		UsageBytes:      &types.UInt64Value{Value: memUsage},
-		AvailableBytes:  &types.UInt64Value{Value: memUsage - memLimit},
+	memory := &statstypes.MemoryUsage{
+		CRIUsage: &types.MemoryUsage{
+			Timestamp:       systemNano,
+			WorkingSetBytes: &types.UInt64Value{},
+			RssBytes:        &types.UInt64Value{},
+			PageFaults:      &types.UInt64Value{},
+			MajorPageFaults: &types.UInt64Value{},
+			UsageBytes:      &types.UInt64Value{Value: memUsage},
+			AvailableBytes:  &types.UInt64Value{Value: memUsage - memLimit},
+		},
 	}
 
 	if err := updateWithMemoryStats(cgroupPath, memory, memUsage); err != nil {
@@ -99,7 +104,7 @@ func MemLimitGivenSystem(cgroupLimit uint64) uint64 {
 // updateWithMemoryStats updates the ContainerStats object with info
 // from cgroup's memory.stat. Returns an error if the file does not exists,
 // or not parsable.
-func updateWithMemoryStats(path string, memory *types.MemoryUsage, usage uint64) error {
+func updateWithMemoryStats(path string, memory *statstypes.MemoryUsage, usage uint64) error {
 	const memoryStatFile = "memory.stat"
 	var memoryStatPath, inactiveFileSearchString string
 	if !node.CgroupIsV2() {
@@ -109,7 +114,7 @@ func updateWithMemoryStats(path string, memory *types.MemoryUsage, usage uint64)
 		memoryStatPath = filepath.Join(cgroupMemoryPathV2, path, memoryStatFile)
 		inactiveFileSearchString = "inactive_file "
 	}
-	return UpdateWithMemoryStatsFromFile(memoryStatPath, inactiveFileSearchString, memory, usage)
+	return UpdateWithMemoryStatsFromFile(memoryStatPath, inactiveFileSearchString, memory.CRIUsage, usage)
 }
 
 func UpdateWithMemoryStatsFromFile(memoryStatPath, inactiveFileSearchString string, memory *types.MemoryUsage, usage uint64) error {
@@ -160,9 +165,11 @@ func UpdateWithMemoryStatsFromFile(memoryStatPath, inactiveFileSearchString stri
 	return nil
 }
 
-func createProcessUsage(systemNano int64, cgroupStats *cgroups.Metrics) *types.ProcessUsage {
-	return &types.ProcessUsage{
-		Timestamp:    systemNano,
-		ProcessCount: &types.UInt64Value{Value: cgroupStats.Pids.Current},
+func createProcessUsage(systemNano int64, cgroupStats *cgroups.Metrics) *statstypes.ProcessUsage {
+	return &statstypes.ProcessUsage{
+		CRIUsage: &types.ProcessUsage{
+			Timestamp:    systemNano,
+			ProcessCount: &types.UInt64Value{Value: cgroupStats.Pids.Current},
+		},
 	}
 }
