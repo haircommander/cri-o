@@ -112,7 +112,7 @@ github.com/cilium/ebpf/link
 # github.com/container-orchestrated-devices/container-device-interface v0.0.0-20210325223243-f99e8b6c10b9
 github.com/container-orchestrated-devices/container-device-interface/pkg
 github.com/container-orchestrated-devices/container-device-interface/specs-go
-# github.com/containerd/cgroups v1.0.1
+# github.com/containerd/cgroups v1.0.3
 ## explicit
 github.com/containerd/cgroups/stats/v1
 # github.com/containerd/console v1.0.2
@@ -1040,7 +1040,7 @@ golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 # golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac
 golang.org/x/time/rate
-# golang.org/x/tools v0.1.2
+# golang.org/x/tools v0.1.5
 golang.org/x/tools/go/ast/astutil
 golang.org/x/tools/go/ast/inspector
 golang.org/x/tools/imports
@@ -1052,6 +1052,7 @@ golang.org/x/tools/internal/fastwalk
 golang.org/x/tools/internal/gocommand
 golang.org/x/tools/internal/gopathwalk
 golang.org/x/tools/internal/imports
+golang.org/x/tools/internal/typeparams
 # golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 golang.org/x/xerrors
 golang.org/x/xerrors/internal
