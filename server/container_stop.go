@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/cri-o/cri-o/internal/log"
+	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/runtimehandlerhooks"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,10 +33,37 @@ func (s *Server) StopContainer(ctx context.Context, req *types.StopContainerRequ
 		}
 	}
 
-	if err := s.ContainerServer.StopContainer(ctx, c, req.Timeout); err != nil {
+	if err := s.stopContainer(ctx, c, req.Timeout); err != nil {
 		return err
 	}
 
 	log.Infof(ctx, "Stopped container %s: %s", c.ID(), c.Description())
+	return nil
+}
+
+// stopContainer stops a running container with a grace period (i.e., timeout).
+func (s *Server) stopContainer(ctx context.Context, ctr *oci.Container, timeout int64) error {
+	if err := s.Runtime().StopContainer(ctx, ctr, timeout); err != nil {
+		// only fatally error if the error is not that the container was already stopped
+		// we still want to write container state to disk if the container has already
+		// been stopped
+		if err != oci.ErrContainerStopped {
+			return errors.Wrapf(err, "failed to stop container %s", ctr.ID())
+		}
+	} else {
+		// we only do these operations if StopContainer didn't fail (even if the failure
+		// was the container already being stopped)
+		if err := s.Runtime().UpdateContainerStatus(ctx, ctr); err != nil {
+			return errors.Wrapf(err, "failed to update container status %s", ctr.ID())
+		}
+		if err := s.StorageRuntimeServer().StopContainer(ctr.ID()); err != nil {
+			return errors.Wrapf(err, "failed to unmount container %s", ctr.ID())
+		}
+	}
+
+	if err := s.ContainerStateToDisk(ctx, ctr); err != nil {
+		log.Warnf(ctx, "Unable to write containers %s state to disk: %v", ctr.ID(), err)
+	}
+
 	return nil
 }

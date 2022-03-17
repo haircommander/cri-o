@@ -956,7 +956,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	resourceCleaner.Add(ctx, description, func() error {
 		// Clean-up steps from RemovePodSanbox
 		log.Infof(ctx, description)
-		if err := s.ContainerServer.StopContainer(ctx, container, int64(10)); err != nil {
+		if err := s.stopContainer(ctx, container, int64(10)); err != nil {
 			return errors.Errorf("failed to stop container for removal")
 		}
 
