@@ -198,7 +198,11 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		return nil, errors.Wrap(err, "parsing created timestamp annotation")
 	}
 
-	sb, err = sandbox.New(id, m.Annotations[annotations.Namespace], name, m.Annotations[annotations.KubeName], filepath.Dir(m.Annotations[annotations.LogPath]), labels, kubeAnnotations, processLabel, mountLabel, &metadata, m.Annotations[annotations.ShmPath], m.Annotations[annotations.CgroupParent], privileged, m.Annotations[annotations.RuntimeHandler], m.Annotations[annotations.ResolvPath], m.Annotations[annotations.HostName], portMappings, hostNetwork, created, m.Annotations[crioann.UsernsModeAnnotation])
+	runtimeImpl, err := c.runtime.NewRuntimeImpl(m.Annotations[annotations.RuntimeHandler])
+	if err != nil {
+		return nil, errors.Wrap(err, "creating new runtime impl")
+	}
+	sb, err = sandbox.New(id, m.Annotations[annotations.Namespace], name, m.Annotations[annotations.KubeName], filepath.Dir(m.Annotations[annotations.LogPath]), labels, kubeAnnotations, processLabel, mountLabel, &metadata, m.Annotations[annotations.ShmPath], m.Annotations[annotations.CgroupParent], privileged, runtimeImpl, m.Annotations[annotations.ResolvPath], m.Annotations[annotations.HostName], portMappings, hostNetwork, created, m.Annotations[crioann.UsernsModeAnnotation])
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +261,7 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 	}
 
 	if !wasSpoofed {
-		scontainer, err = oci.NewContainer(m.Annotations[annotations.ContainerID], cname, sandboxPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[annotations.Image], "", "", nil, id, false, false, false, sb.RuntimeHandler(), sandboxDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
+		scontainer, err = oci.NewContainer(m.Annotations[annotations.ContainerID], cname, sandboxPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, m.Annotations[annotations.Image], "", "", nil, id, false, false, false, sandboxDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
 		if err != nil {
 			return sb, err
 		}
@@ -302,13 +306,13 @@ func (c *ContainerServer) LoadSandbox(ctx context.Context, id string) (sb *sandb
 		}
 	}
 
-	if err := c.ContainerStateFromDisk(ctx, scontainer); err != nil {
+	if err := c.ContainerStateFromDisk(ctx, scontainer, sb); err != nil {
 		return sb, fmt.Errorf("error reading sandbox state from disk %q: %v", scontainer.ID(), err)
 	}
 
 	// We write back the state because it is possible that crio did not have a chance to
 	// read the exit file and persist exit code into the state on reboot.
-	if err := c.ContainerStateToDisk(ctx, scontainer); err != nil {
+	if err := c.ContainerStateToDisk(ctx, scontainer, sb); err != nil {
 		return sb, fmt.Errorf("failed to write container %q state to disk: %v", scontainer.ID(), err)
 	}
 
@@ -431,7 +435,7 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 		return err
 	}
 
-	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, img, imgName, imgRef, &metadata, sb.ID(), tty, stdin, stdinOnce, sb.RuntimeHandler(), containerDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
+	ctr, err := oci.NewContainer(id, name, containerPath, m.Annotations[annotations.LogPath], labels, m.Annotations, kubeAnnotations, img, imgName, imgRef, &metadata, sb.ID(), tty, stdin, stdinOnce, containerDir, created, m.Annotations["org.opencontainers.image.stopSignal"])
 	if err != nil {
 		return err
 	}
@@ -440,13 +444,13 @@ func (c *ContainerServer) LoadContainer(ctx context.Context, id string) (retErr 
 	spp := m.Annotations[annotations.SeccompProfilePath]
 	ctr.SetSeccompProfilePath(spp)
 
-	if err := c.ContainerStateFromDisk(ctx, ctr); err != nil {
+	if err := c.ContainerStateFromDisk(ctx, ctr, sb); err != nil {
 		return fmt.Errorf("error reading container state from disk %q: %v", ctr.ID(), err)
 	}
 
 	// We write back the state because it is possible that crio did not have a chance to
 	// read the exit file and persist exit code into the state on reboot.
-	if err := c.ContainerStateToDisk(ctx, ctr); err != nil {
+	if err := c.ContainerStateToDisk(ctx, ctr, sb); err != nil {
 		return fmt.Errorf("failed to write container state to disk %q: %v", ctr.ID(), err)
 	}
 	ctr.SetCreated()
@@ -462,11 +466,11 @@ func isTrue(annotaton string) bool {
 
 // ContainerStateFromDisk retrieves information on the state of a running container
 // from the disk
-func (c *ContainerServer) ContainerStateFromDisk(ctx context.Context, ctr *oci.Container) error {
+func (c *ContainerServer) ContainerStateFromDisk(ctx context.Context, ctr *oci.Container, sb *sandbox.Sandbox) error {
 	if err := ctr.FromDisk(); err != nil {
 		return err
 	}
-	if err := c.runtime.UpdateContainerStatus(ctx, ctr); err != nil {
+	if err := sb.Runtime().UpdateContainerStatus(ctx, ctr); err != nil {
 		return err
 	}
 
@@ -475,8 +479,8 @@ func (c *ContainerServer) ContainerStateFromDisk(ctx context.Context, ctr *oci.C
 
 // ContainerStateToDisk writes the container's state information to a JSON file
 // on disk
-func (c *ContainerServer) ContainerStateToDisk(ctx context.Context, ctr *oci.Container) error {
-	if err := c.Runtime().UpdateContainerStatus(ctx, ctr); err != nil {
+func (c *ContainerServer) ContainerStateToDisk(ctx context.Context, ctr *oci.Container, sb *sandbox.Sandbox) error {
+	if err := sb.Runtime().UpdateContainerStatus(ctx, ctr); err != nil {
 		log.Warnf(ctx, "Error updating the container status %q: %v", ctr.ID(), err)
 	}
 

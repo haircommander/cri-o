@@ -33,21 +33,21 @@ type Sandbox struct {
 	// OCI pod name (eg "<namespace>-<name>-<attempt>")
 	name string
 	// Kubernetes pod name (eg, "<name>")
-	kubeName       string
-	logDir         string
-	containers     oci.ContainerStorer
-	processLabel   string
-	mountLabel     string
-	netns          nsmgr.Namespace
-	ipcns          nsmgr.Namespace
-	utsns          nsmgr.Namespace
-	userns         nsmgr.Namespace
-	shmPath        string
-	cgroupParent   string
-	runtimeHandler string
-	resolvPath     string
-	hostnamePath   string
-	hostname       string
+	kubeName     string
+	logDir       string
+	containers   oci.ContainerStorer
+	processLabel string
+	mountLabel   string
+	netns        nsmgr.Namespace
+	ipcns        nsmgr.Namespace
+	utsns        nsmgr.Namespace
+	userns       nsmgr.Namespace
+	shmPath      string
+	cgroupParent string
+	runtimeImpl  oci.RuntimeImpl
+	resolvPath   string
+	hostnamePath string
+	hostname     string
 	// ipv4 or ipv6 cache
 	ips                []string
 	seccompProfilePath string
@@ -72,7 +72,7 @@ var ErrIDEmpty = errors.New("PodSandboxId should not be empty")
 // New creates and populates a new pod sandbox
 // New sandboxes have no containers, no infra container, and no network namespaces associated with them
 // An infra container must be attached before the sandbox is added to the state
-func New(id, namespace, name, kubeName, logDir string, labels, annotations map[string]string, processLabel, mountLabel string, metadata *types.PodSandboxMetadata, shmPath, cgroupParent string, privileged bool, runtimeHandler, resolvPath, hostname string, portMappings []*hostport.PortMapping, hostNetwork bool, createdAt time.Time, usernsMode string) (*Sandbox, error) {
+func New(id, namespace, name, kubeName, logDir string, labels, annotations map[string]string, processLabel, mountLabel string, metadata *types.PodSandboxMetadata, shmPath, cgroupParent string, privileged bool, runtimeImpl oci.RuntimeImpl, resolvPath, hostname string, portMappings []*hostport.PortMapping, hostNetwork bool, createdAt time.Time, usernsMode string) (*Sandbox, error) {
 	sb := new(Sandbox)
 
 	sb.criSandbox = &types.PodSandbox{
@@ -92,7 +92,7 @@ func New(id, namespace, name, kubeName, logDir string, labels, annotations map[s
 	sb.shmPath = shmPath
 	sb.cgroupParent = cgroupParent
 	sb.privileged = privileged
-	sb.runtimeHandler = runtimeHandler
+	sb.runtimeImpl = runtimeImpl
 	sb.resolvPath = resolvPath
 	sb.hostname = hostname
 	sb.portMappings = portMappings
@@ -225,11 +225,9 @@ func (s *Sandbox) Privileged() bool {
 	return s.privileged
 }
 
-// RuntimeHandler returns the name of the runtime handler that should be
-// picked from the list of runtimes. The name must match the key from the
-// map of runtimes.
-func (s *Sandbox) RuntimeHandler() string {
-	return s.runtimeHandler
+// Runtime returns the implementation of the runtime for the sandbox.
+func (s *Sandbox) Runtime() oci.RuntimeImpl {
+	return s.runtimeImpl
 }
 
 // HostNetwork returns whether the sandbox runs in the host network namespace

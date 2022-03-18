@@ -676,7 +676,7 @@ func (s *Server) StartExitMonitor(ctx context.Context) {
 								continue
 							}
 							log.Debugf(ctx, "Sandbox exited and found: %v", containerID)
-							err := s.Runtime().UpdateContainerStatus(ctx, c)
+							err := sb.Runtime().UpdateContainerStatus(ctx, c)
 							if err != nil {
 								log.Warnf(ctx, "Failed to update sandbox infra container status %s: %v", c.ID(), err)
 							} else if err := s.ContainerStateToDisk(ctx, c); err != nil {

@@ -517,7 +517,7 @@ func (s *Server) CreateContainer(ctx context.Context, req *types.CreateContainer
 	resourceCleaner.Add(ctx, description, func() error {
 		if retErr != nil {
 			log.Infof(ctx, description)
-			if err := s.Runtime().DeleteContainer(ctx, newContainer); err != nil {
+			if err := sb.Runtime().DeleteContainer(ctx, newContainer); err != nil {
 				log.Warnf(ctx, "Failed to delete container in runtime %s: %v", ctr.ID(), err)
 				return err
 			}

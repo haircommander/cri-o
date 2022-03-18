@@ -86,11 +86,6 @@ func New(c *config.Config) (*Runtime, error) {
 	}, nil
 }
 
-// Runtimes returns the map of OCI runtimes.
-func (r *Runtime) Runtimes() config.Runtimes {
-	return r.config.Runtimes
-}
-
 // ValidateRuntimeHandler returns an error if the runtime handler string
 // provided does not match any valid use case.
 func (r *Runtime) ValidateRuntimeHandler(handler string) (*config.RuntimeHandler, error) {
@@ -163,8 +158,8 @@ func (r *Runtime) RuntimeType(runtimeHandler string) (string, error) {
 	return rh.RuntimeType, nil
 }
 
-func (r *Runtime) newRuntimeImpl(c *Container) (RuntimeImpl, error) {
-	rh, err := r.getRuntimeHandler(c.runtimeHandler)
+func (r *Runtime) NewRuntimeImpl(runtimeHandler string) (RuntimeImpl, error) {
+	rh, err := r.getRuntimeHandler(runtimeHandler)
 	if err != nil {
 		return nil, err
 	}
@@ -176,193 +171,6 @@ func (r *Runtime) newRuntimeImpl(c *Container) (RuntimeImpl, error) {
 	// If the runtime type is different from "vm", then let's fallback
 	// onto the OCI implementation by default.
 	return newRuntimeOCI(r, rh), nil
-}
-
-// RuntimeImpl returns the runtime implementation for a given container
-func (r *Runtime) RuntimeImpl(c *Container) (RuntimeImpl, error) {
-	r.runtimeImplMapMutex.RLock()
-	impl, ok := r.runtimeImplMap[c.ID()]
-	r.runtimeImplMapMutex.RUnlock()
-	if ok {
-		return impl, nil
-	}
-
-	impl, err := r.newRuntimeImpl(c)
-	if err != nil {
-		return nil, err
-	}
-	r.runtimeImplMapMutex.Lock()
-	r.runtimeImplMap[c.ID()] = impl
-	r.runtimeImplMapMutex.Unlock()
-	return impl, nil
-}
-
-// CreateContainer creates a container.
-func (r *Runtime) CreateContainer(ctx context.Context, c *Container, cgroupParent string) error {
-	// Instantiate a new runtime implementation for this new container
-	impl, err := r.newRuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	// Assign this runtime implementation to the current container
-	r.runtimeImplMapMutex.Lock()
-	r.runtimeImplMap[c.ID()] = impl
-	r.runtimeImplMapMutex.Unlock()
-
-	return impl.CreateContainer(ctx, c, cgroupParent)
-}
-
-// StartContainer starts a container.
-func (r *Runtime) StartContainer(ctx context.Context, c *Container) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.StartContainer(ctx, c)
-}
-
-// ExecContainer prepares a streaming endpoint to execute a command in the container.
-func (r *Runtime) ExecContainer(ctx context.Context, c *Container, cmd []string, stdin io.Reader, stdout, stderr io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.ExecContainer(ctx, c, cmd, stdin, stdout, stderr, tty, resize)
-}
-
-// ExecSyncContainer execs a command in a container and returns it's stdout, stderr and return code.
-func (r *Runtime) ExecSyncContainer(ctx context.Context, c *Container, command []string, timeout int64) (*types.ExecSyncResponse, error) {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return nil, err
-	}
-
-	return impl.ExecSyncContainer(ctx, c, command, timeout)
-}
-
-// UpdateContainer updates container resources
-func (r *Runtime) UpdateContainer(ctx context.Context, c *Container, res *rspec.LinuxResources) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.UpdateContainer(ctx, c, res)
-}
-
-// StopContainer stops a container. Timeout is given in seconds.
-func (r *Runtime) StopContainer(ctx context.Context, c *Container, timeout int64) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.StopContainer(ctx, c, timeout)
-}
-
-// DeleteContainer deletes a container.
-func (r *Runtime) DeleteContainer(ctx context.Context, c *Container) (err error) {
-	r.runtimeImplMapMutex.RLock()
-	impl, ok := r.runtimeImplMap[c.ID()]
-	r.runtimeImplMapMutex.RUnlock()
-	if !ok {
-		if impl, err = r.newRuntimeImpl(c); err != nil {
-			return err
-		}
-	} else {
-		defer func() {
-			if err == nil {
-				r.runtimeImplMapMutex.Lock()
-				delete(r.runtimeImplMap, c.ID())
-				r.runtimeImplMapMutex.Unlock()
-			}
-		}()
-	}
-
-	return impl.DeleteContainer(ctx, c)
-}
-
-// UpdateContainerStatus refreshes the status of the container.
-func (r *Runtime) UpdateContainerStatus(ctx context.Context, c *Container) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.UpdateContainerStatus(ctx, c)
-}
-
-// PauseContainer pauses a container.
-func (r *Runtime) PauseContainer(ctx context.Context, c *Container) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.PauseContainer(ctx, c)
-}
-
-// UnpauseContainer unpauses a container.
-func (r *Runtime) UnpauseContainer(ctx context.Context, c *Container) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.UnpauseContainer(ctx, c)
-}
-
-// ContainerStats provides statistics of a container.
-func (r *Runtime) ContainerStats(ctx context.Context, c *Container, cgroup string) (*types.ContainerStats, error) {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return nil, err
-	}
-
-	return impl.ContainerStats(ctx, c, cgroup)
-}
-
-// SignalContainer sends a signal to a container process.
-func (r *Runtime) SignalContainer(ctx context.Context, c *Container, sig syscall.Signal) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.SignalContainer(ctx, c, sig)
-}
-
-// AttachContainer attaches IO to a running container.
-func (r *Runtime) AttachContainer(ctx context.Context, c *Container, inputStream io.Reader, outputStream, errorStream io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.AttachContainer(ctx, c, inputStream, outputStream, errorStream, tty, resize)
-}
-
-// PortForwardContainer forwards the specified port provides statistics of a container.
-func (r *Runtime) PortForwardContainer(ctx context.Context, c *Container, netNsPath string, port int32, stream io.ReadWriteCloser) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.PortForwardContainer(ctx, c, netNsPath, port, stream)
-}
-
-// ReopenContainerLog reopens the log file of a container.
-func (r *Runtime) ReopenContainerLog(ctx context.Context, c *Container) error {
-	impl, err := r.RuntimeImpl(c)
-	if err != nil {
-		return err
-	}
-
-	return impl.ReopenContainerLog(ctx, c)
 }
 
 // ExecSyncError wraps command's streams, exit code and error on ExecSync error.

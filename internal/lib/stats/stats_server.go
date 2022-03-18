@@ -111,7 +111,7 @@ func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) *types.PodSandboxStats
 		if c.StateNoLock().Status == oci.ContainerStateStopped {
 			continue
 		}
-		cStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
+		cStats, err := sb.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
 		if err != nil {
 			logrus.Errorf("Error getting container stats %s: %v", c.ID(), err)
 			continue
@@ -139,7 +139,7 @@ func (ss *StatsServer) updateContainer(c *oci.Container, sb *sandbox.Sandbox) *t
 	if c.StateNoLock().Status == oci.ContainerStateStopped {
 		return nil
 	}
-	cStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
+	cStats, err := sb.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
 	if err != nil {
 		logrus.Errorf("Error getting container stats %s: %v", c.ID(), err)
 		return nil

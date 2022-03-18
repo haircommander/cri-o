@@ -85,15 +85,6 @@ var _ = t.Describe("Oci", func() {
 			Expect(sut).NotTo(BeNil())
 		})
 
-		It("should succeed to retrieve the runtimes", func() {
-			// Given
-			// When
-			result := sut.Runtimes()
-
-			// Then
-			Expect(result).To(Equal(runtimes))
-		})
-
 		It("should succeed to validate a runtime handler", func() {
 			// Given
 			// When

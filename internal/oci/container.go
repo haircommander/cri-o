@@ -44,11 +44,10 @@ var (
 
 // Container represents a runtime container.
 type Container struct {
-	criContainer   *types.Container
-	volumes        []ContainerVolume
-	name           string
-	logPath        string
-	runtimeHandler string
+	criContainer *types.Container
+	volumes      []ContainerVolume
+	name         string
+	logPath      string
 	// this is the /var/run/storage/... directory, erased on reboot
 	bundlePath string
 	// this is the /var/lib/storage/... directory
@@ -109,7 +108,7 @@ type ContainerState struct {
 }
 
 // NewContainer creates a container object.
-func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations, annotations map[string]string, image, imageName, imageRef string, metadata *types.ContainerMetadata, sandbox string, terminal, stdin, stdinOnce bool, runtimeHandler, dir string, created time.Time, stopSignal string) (*Container, error) {
+func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations, annotations map[string]string, image, imageName, imageRef string, metadata *types.ContainerMetadata, sandbox string, terminal, stdin, stdinOnce bool, dir string, created time.Time, stopSignal string) (*Container, error) {
 	state := &ContainerState{}
 	state.Created = created
 	c := &Container{
@@ -131,7 +130,6 @@ func NewContainer(id, name, bundlePath, logPath string, labels, crioAnnotations,
 		terminal:         terminal,
 		stdin:            stdin,
 		stdinOnce:        stdinOnce,
-		runtimeHandler:   runtimeHandler,
 		crioAnnotations:  crioAnnotations,
 		imageName:        imageName,
 		dir:              dir,

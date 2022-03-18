@@ -62,5 +62,5 @@ func (s StreamService) PortForward(podSandboxID string, port int32, stream io.Re
 	// defer responsibility of emptying stream to PortForwardContainer
 	emptyStreamOnError = false
 
-	return s.runtimeServer.Runtime().PortForwardContainer(ctx, sb.InfraContainer(), netNsPath, port, stream)
+	return sb.Runtime().PortForwardContainer(ctx, sb.InfraContainer(), netNsPath, port, stream)
 }

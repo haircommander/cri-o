@@ -54,7 +54,7 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 		}
 	}
 
-	if err := s.Runtime().StartContainer(ctx, c); err != nil {
+	if err := sandbox.StartContainer(ctx, c); err != nil {
 		return fmt.Errorf("failed to start container %s: %v", c.ID(), err)
 	}
 
