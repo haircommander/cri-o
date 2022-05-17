@@ -96,7 +96,7 @@ func run() error {
 	shortHead := head[:7]
 	endRev := head
 	if output, err := command.New(
-		"git", "describe", "--exact-match",
+		"git", "describe", "--tags", "--exact-match",
 	).RunSilentSuccessOutput(); err == nil {
 		foundTag := output.OutputTrimNL()
 		bundleVersion = foundTag
