@@ -46,21 +46,65 @@ func ttyCmd(execCmd *exec.Cmd, stdin io.Reader, stdout io.WriteCloser, resize <-
 	})
 
 	var stdinErr, stdoutErr error
+	stdinErrChan := make(chan error, 1)
+	stdoutErrChan := make(chan error, 1)
+	cmdErrChan := make(chan error, 1)
 	if stdin != nil {
-		go func() { _, stdinErr = pools.Copy(p, stdin) }()
+		go func() {
+			_, stdinErr = pools.Copy(p, stdin)
+			stdinErrChan <- stdinErr
+		}()
 	}
 
 	if stdout != nil {
-		go func() { _, stdoutErr = pools.Copy(stdout, p) }()
+		go func() {
+			_, stdoutErr = pools.Copy(stdout, p)
+			stdoutErrChan <- stdoutErr
+		}()
 	}
 
-	err = execCmd.Wait()
+	go func() {
+		cmdErrChan <- execCmd.Wait()
+	}()
 
-	if stdinErr != nil {
-		logrus.Warnf("Stdin copy error: %v", stdinErr)
+	return finishExec(execCmd, cmdErrChan, stdinErrChan, stdoutErrChan, nil)
+}
+
+func finishExec(execCmd *exec.Cmd, cmdErrChan, stdinErrChan, stdoutErrChan, stderrErrChan chan error) error {
+	var (
+		stream string
+		err    error
+	)
+	if stderrErrChan == nil {
+		// noop for TTY
+		stderrErrChan = make(chan error, 1)
 	}
-	if stdoutErr != nil {
-		logrus.Warnf("Stdout copy error: %v", stdoutErr)
+	select {
+	case err = <-cmdErrChan:
+		return err
+	case err = <-stdinErrChan:
+		stream = "Stdin"
+	case err = <-stdoutErrChan:
+		stream = "Stdout"
+	case err = <-stderrErrChan:
+		stream = "Stderr"
+	}
+	// We need to always kill and wait on this process.
+	// Failing to do so will cause us to leak a process.
+	killErr := execCmd.Process.Kill()
+	waitErr := <-cmdErrChan
+	if killErr != nil {
+		err = fmt.Errorf("failed to kill %+v after failing with: %w", killErr, err)
+	}
+	// Per https://pkg.go.dev/os#ProcessState.ExitCode, the exit code is -1 when the process died because
+	// of a signal. We expect this in this case, as we've just killed it with a signal. Don't append the
+	// error in this case to reduce noise.
+	if exitErr, ok := waitErr.(*exec.ExitError); !ok || exitErr.ExitCode() != -1 {
+		err = fmt.Errorf("failed to wait %+v after failing with: %w", waitErr, err)
+	}
+
+	if err != nil {
+		logrus.Warnf("%s copy error: %v", stream, err)
 	}
 
 	return err
