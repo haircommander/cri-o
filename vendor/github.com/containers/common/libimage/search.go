@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containers/common/libimage/define"
 	registryTransport "github.com/containers/image/v5/docker"
 	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	"github.com/containers/image/v5/transports/alltransports"
 	"github.com/containers/image/v5/types"
 	"github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
 )
@@ -58,6 +58,10 @@ type SearchOptions struct {
 	InsecureSkipTLSVerify types.OptionalBool
 	// ListTags returns the search result with available tags
 	ListTags bool
+	// Registries to search if the specified term does not include a
+	// registry.  If set, the unqualified-search registries in
+	// containers-registries.conf(5) are ignored.
+	Registries []string
 }
 
 // SearchFilter allows filtering images while searching.
@@ -77,34 +81,38 @@ func ParseSearchFilter(filter []string) (*SearchFilter, error) {
 	for _, f := range filter {
 		arr := strings.SplitN(f, "=", 2)
 		switch arr[0] {
-		case "stars":
+		case define.SearchFilterStars:
 			if len(arr) < 2 {
-				return nil, errors.Errorf("invalid `stars` filter %q, should be stars=<value>", filter)
+				return nil, fmt.Errorf("invalid filter %q, should be stars=<value>", filter)
 			}
 			stars, err := strconv.Atoi(arr[1])
 			if err != nil {
-				return nil, errors.Wrapf(err, "incorrect value type for stars filter")
+				return nil, fmt.Errorf("incorrect value type for stars filter: %w", err)
 			}
 			sFilter.Stars = stars
-		case "is-automated":
+		case define.SearchFilterAutomated:
 			if len(arr) == 2 && arr[1] == "false" {
 				sFilter.IsAutomated = types.OptionalBoolFalse
 			} else {
 				sFilter.IsAutomated = types.OptionalBoolTrue
 			}
-		case "is-official":
+		case define.SearchFilterOfficial:
 			if len(arr) == 2 && arr[1] == "false" {
 				sFilter.IsOfficial = types.OptionalBoolFalse
 			} else {
 				sFilter.IsOfficial = types.OptionalBoolTrue
 			}
 		default:
-			return nil, errors.Errorf("invalid filter type %q", f)
+			return nil, fmt.Errorf("invalid filter type %q", f)
 		}
 	}
 	return sFilter, nil
 }
 
+// Search searches term.  If term includes a registry, only this registry will
+// be used for searching.  Otherwise, the unqualified-search registries in
+// containers-registries.conf(5) or the ones specified in the options will be
+// used.
 func (r *Runtime) Search(ctx context.Context, term string, options *SearchOptions) ([]SearchResult, error) {
 	if options == nil {
 		options = &SearchOptions{}
@@ -117,10 +125,14 @@ func (r *Runtime) Search(ctx context.Context, term string, options *SearchOption
 	// that we cannot use the reference parser from the containers/image
 	// library as the search term may container arbitrary input such as
 	// wildcards.  See bugzilla.redhat.com/show_bug.cgi?id=1846629.
-	if spl := strings.SplitN(term, "/", 2); len(spl) > 1 {
-		searchRegistries = append(searchRegistries, spl[0])
+	spl := strings.SplitN(term, "/", 2)
+	switch {
+	case len(spl) > 1:
+		searchRegistries = []string{spl[0]}
 		term = spl[1]
-	} else {
+	case len(options.Registries) > 0:
+		searchRegistries = options.Registries
+	default:
 		regs, err := sysregistriesv2.UnqualifiedSearchRegistries(r.systemContextCopy())
 		if err != nil {
 			return nil, err
@@ -244,7 +256,7 @@ func (r *Runtime) searchImageInRegistry(ctx context.Context, term, registry stri
 			name = index + "/library/" + results[i].Name
 		}
 		params := SearchResult{
-			Index:       index,
+			Index:       registry,
 			Name:        name,
 			Description: description,
 			Official:    official,
@@ -260,16 +272,16 @@ func searchRepositoryTags(ctx context.Context, sys *types.SystemContext, registr
 	dockerPrefix := "docker://"
 	imageRef, err := alltransports.ParseImageName(fmt.Sprintf("%s/%s", registry, term))
 	if err == nil && imageRef.Transport().Name() != registryTransport.Transport.Name() {
-		return nil, errors.Errorf("reference %q must be a docker reference", term)
+		return nil, fmt.Errorf("reference %q must be a docker reference", term)
 	} else if err != nil {
 		imageRef, err = alltransports.ParseImageName(fmt.Sprintf("%s%s", dockerPrefix, fmt.Sprintf("%s/%s", registry, term)))
 		if err != nil {
-			return nil, errors.Errorf("reference %q must be a docker reference", term)
+			return nil, fmt.Errorf("reference %q must be a docker reference", term)
 		}
 	}
 	tags, err := registryTransport.GetRepositoryTags(ctx, sys, imageRef)
 	if err != nil {
-		return nil, errors.Errorf("error getting repository tags: %v", err)
+		return nil, fmt.Errorf("error getting repository tags: %v", err)
 	}
 	limit := searchMaxQueries
 	if len(tags) < limit {
@@ -284,8 +296,9 @@ func searchRepositoryTags(ctx context.Context, sys *types.SystemContext, registr
 	paramsArr := []SearchResult{}
 	for i := 0; i < limit; i++ {
 		params := SearchResult{
-			Name: imageRef.DockerReference().Name(),
-			Tag:  tags[i],
+			Name:  imageRef.DockerReference().Name(),
+			Tag:   tags[i],
+			Index: registry,
 		}
 		paramsArr = append(paramsArr, params)
 	}

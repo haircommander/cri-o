@@ -32,20 +32,9 @@ func (r *Runtime) Load(ctx context.Context, path string, options *LoadOptions) (
 		options = &LoadOptions{}
 	}
 
-	var loadErrors []error
-
+	// we have 4 functions, so a maximum of 4 errors
+	loadErrors := make([]error, 0, 4)
 	for _, f := range []func() ([]string, string, error){
-		// DOCKER-ARCHIVE - must be first (see containers/podman/issues/10809)
-		func() ([]string, string, error) {
-			logrus.Debugf("-> Attempting to load %q as a Docker archive", path)
-			ref, err := dockerArchiveTransport.ParseReference(path)
-			if err != nil {
-				return nil, dockerArchiveTransport.Transport.Name(), err
-			}
-			images, err := r.loadMultiImageDockerArchive(ctx, ref, &options.CopyOptions)
-			return images, dockerArchiveTransport.Transport.Name(), err
-		},
-
 		// OCI
 		func() ([]string, string, error) {
 			logrus.Debugf("-> Attempting to load %q as an OCI directory", path)
@@ -68,6 +57,17 @@ func (r *Runtime) Load(ctx context.Context, path string, options *LoadOptions) (
 			return images, ociArchiveTransport.Transport.Name(), err
 		},
 
+		// DOCKER-ARCHIVE
+		func() ([]string, string, error) {
+			logrus.Debugf("-> Attempting to load %q as a Docker archive", path)
+			ref, err := dockerArchiveTransport.ParseReference(path)
+			if err != nil {
+				return nil, dockerArchiveTransport.Transport.Name(), err
+			}
+			images, err := r.loadMultiImageDockerArchive(ctx, ref, &options.CopyOptions)
+			return images, dockerArchiveTransport.Transport.Name(), err
+		},
+
 		// DIR
 		func() ([]string, string, error) {
 			logrus.Debugf("-> Attempting to load %q as a Docker dir", path)
@@ -88,6 +88,8 @@ func (r *Runtime) Load(ctx context.Context, path string, options *LoadOptions) (
 	}
 
 	// Give a decent error message if nothing above worked.
+	// we want the colon here for the multiline error
+	//nolint:revive
 	loadError := fmt.Errorf("payload does not match any of the supported image formats:")
 	for _, err := range loadErrors {
 		loadError = fmt.Errorf("%v\n * %v", loadError, err)
@@ -112,6 +114,11 @@ func (r *Runtime) loadMultiImageDockerArchive(ctx context.Context, ref types.Ima
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := reader.Close(); err != nil {
+			logrus.Errorf("Closing reader of docker archive: %v", err)
+		}
+	}()
 
 	refLists, err := reader.List()
 	if err != nil {

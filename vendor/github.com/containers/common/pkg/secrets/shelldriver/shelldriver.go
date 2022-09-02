@@ -3,13 +3,12 @@ package shelldriver
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
-
-	"github.com/mitchellh/mapstructure"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -27,22 +26,33 @@ var (
 type driverConfig struct {
 	// DeleteCommand contains a shell command that deletes a secret.
 	// The secret id is provided as environment variable SECRET_ID
-	DeleteCommand string `mapstructure:"delete"`
+	DeleteCommand string
 	// ListCommand contains a shell command that lists all secrets.
 	// The output is expected to be one id per line
-	ListCommand string `mapstructure:"list"`
+	ListCommand string
 	// LookupCommand contains a shell command that retrieves a secret.
 	// The secret id is provided as environment variable SECRET_ID
-	LookupCommand string `mapstructure:"lookup"`
+	LookupCommand string
 	// StoreCommand contains a shell command that stores a secret.
 	// The secret id is provided as environment variable SECRET_ID
-	// The secret value itself is provied over stdin
-	StoreCommand string `mapstructure:"store"`
+	// The secret value itself is provided over stdin
+	StoreCommand string
 }
 
 func (cfg *driverConfig) ParseOpts(opts map[string]string) error {
-	if err := mapstructure.Decode(opts, cfg); err != nil {
-		return err
+	for key, value := range opts {
+		switch key {
+		case "delete":
+			cfg.DeleteCommand = value
+		case "list":
+			cfg.ListCommand = value
+		case "lookup":
+			cfg.LookupCommand = value
+		case "store":
+			cfg.StoreCommand = value
+		default:
+			return fmt.Errorf("invalid shell driver option: %q", key)
+		}
 	}
 	if cfg.DeleteCommand == "" ||
 		cfg.ListCommand == "" ||
@@ -115,7 +125,7 @@ func (d *Driver) Lookup(id string) ([]byte, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		return nil, errors.Wrap(errNoSecretData, id)
+		return nil, fmt.Errorf("%s: %w", id, errNoSecretData)
 	}
 	return buf.Bytes(), nil
 }
@@ -152,7 +162,7 @@ func (d *Driver) Delete(id string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		return errors.Wrap(errNoSecretData, id)
+		return fmt.Errorf("%s: %w", id, errNoSecretData)
 	}
 
 	return nil

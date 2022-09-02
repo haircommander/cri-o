@@ -4,18 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/containerd/containerd/platforms"
+	putil "github.com/containers/buildah/pkg/util"
 	"github.com/containers/buildah/util"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/system"
 	"github.com/containers/storage/pkg/unshare"
-	"github.com/pkg/errors"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,8 +43,10 @@ func Info(store storage.Store) ([]InfoData, error) {
 
 func hostInfo() map[string]interface{} {
 	info := map[string]interface{}{}
-	info["os"] = runtime.GOOS
-	info["arch"] = runtime.GOARCH
+	ps := platforms.Normalize(v1.Platform{OS: runtime.GOOS, Architecture: runtime.GOARCH})
+	info["os"] = ps.OS
+	info["arch"] = ps.Architecture
+	info["variant"] = ps.Variant
 	info["cpus"] = runtime.NumCPU()
 	info["rootless"] = unshare.IsRootless()
 
@@ -79,21 +81,15 @@ func hostInfo() map[string]interface{} {
 		"version":      hostDistributionInfo["Version"],
 	}
 
-	kv, err := readKernelVersion()
+	kv, err := putil.ReadKernelVersion()
 	if err != nil {
 		logrus.Error(err, "error reading kernel version")
 	}
 	info["kernel"] = kv
 
-	up, err := readUptime()
+	upDuration, err := putil.ReadUptime()
 	if err != nil {
 		logrus.Error(err, "error reading up time")
-	}
-	// Convert uptime in seconds to a human-readable format
-	upSeconds := up + "s"
-	upDuration, err := time.ParseDuration(upSeconds)
-	if err != nil {
-		logrus.Error(err, "error parsing system uptime")
 	}
 
 	hoursFound := false
@@ -164,30 +160,6 @@ func storeInfo(store storage.Store) (map[string]interface{}, error) {
 	}
 
 	return info, nil
-}
-
-func readKernelVersion() (string, error) {
-	buf, err := ioutil.ReadFile("/proc/version")
-	if err != nil {
-		return "", err
-	}
-	f := bytes.Fields(buf)
-	if len(f) < 2 {
-		return string(bytes.TrimSpace(buf)), nil
-	}
-	return string(f[2]), nil
-}
-
-func readUptime() (string, error) {
-	buf, err := ioutil.ReadFile("/proc/uptime")
-	if err != nil {
-		return "", err
-	}
-	f := bytes.Fields(buf)
-	if len(f) < 1 {
-		return "", errors.Errorf("invalid uptime")
-	}
-	return string(f[0]), nil
 }
 
 // getHostDistributionInfo returns a map containing the host's distribution and version
