@@ -9,6 +9,7 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	cstorage "github.com/containers/storage"
+	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/config"
@@ -91,18 +92,11 @@ func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) *types.PodSandboxStats
 	if sb == nil {
 		return nil
 	}
-	sandboxStats := &types.PodSandboxStats{
-		Attributes: &types.PodSandboxAttributes{
-			Id:          sb.ID(),
-			Labels:      sb.Labels(),
-			Metadata:    sb.Metadata(),
-			Annotations: sb.Annotations(),
-		},
-		Linux: &types.LinuxPodSandboxStats{},
-	}
-	if err := ss.Config().CgroupManager().PopulateSandboxCgroupStats(sb.CgroupParent(), sandboxStats); err != nil {
+	sbCgroupStats, err := ss.Config().CgroupManager().SandboxCgroupStats(sb.CgroupParent())
+	if err != nil {
 		logrus.Errorf("Error getting sandbox stats %s: %v", sb.ID(), err)
 	}
+	sandboxStats := cgmgrStatsToCRISandbox(sbCgroupStats, sb)
 	if err := ss.populateNetworkUsage(sandboxStats, sb); err != nil {
 		logrus.Errorf("Error adding network stats for sandbox %s: %v", sb.ID(), err)
 	}
@@ -111,11 +105,12 @@ func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) *types.PodSandboxStats
 		if c.StateNoLock().Status == oci.ContainerStateStopped {
 			continue
 		}
-		cStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
+		cCgroupStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
 		if err != nil {
 			logrus.Errorf("Error getting container stats %s: %v", c.ID(), err)
 			continue
 		}
+		cStats := cgmgrStatsToCRIContainer(cCgroupStats, c)
 		ss.populateWritableLayer(cStats, c)
 		if oldcStats, ok := ss.ctrStats[c.ID()]; ok {
 			updateUsageNanoCores(oldcStats.Cpu, cStats.Cpu)
@@ -129,6 +124,69 @@ func (ss *StatsServer) updateSandbox(sb *sandbox.Sandbox) *types.PodSandboxStats
 	return sandboxStats
 }
 
+func cgmgrStatsToCRISandbox(cgroupStats *cgmgr.CgroupStats, sb *sandbox.Sandbox) *types.PodSandboxStats {
+	return &types.PodSandboxStats{
+		Attributes: &types.PodSandboxAttributes{
+			Id:          sb.ID(),
+			Labels:      sb.Labels(),
+			Metadata:    sb.Metadata(),
+			Annotations: sb.Annotations(),
+		},
+		Linux: &types.LinuxPodSandboxStats{
+			Cpu:     cgmgrToCRICpu(cgroupStats),
+			Process: cgmgrToCRIProcess(cgroupStats),
+			Memory:  cgmgrToCRIMemory(cgroupStats),
+		},
+	}
+}
+
+func cgmgrStatsToCRIContainer(cgroupStats *cgmgr.CgroupStats, ctr *oci.Container) *types.ContainerStats {
+	return &types.ContainerStats{
+		Attributes: ctr.CRIAttributes(),
+		Cpu:        cgmgrToCRICpu(cgroupStats),
+		Memory:     cgmgrToCRIMemory(cgroupStats),
+		WritableLayer: &types.FilesystemUsage{
+			Timestamp: cgroupStats.SystemNano,
+		},
+	}
+}
+
+func cgmgrToCRICpu(cgroupStats *cgmgr.CgroupStats) *types.CpuUsage {
+	return &types.CpuUsage{
+		Timestamp:            cgroupStats.SystemNano,
+		UsageCoreNanoSeconds: &types.UInt64Value{Value: cgroupStats.MostStats.CpuStats.CpuUsage.TotalUsage},
+	}
+}
+
+func cgmgrToCRIProcess(cgroupStats *cgmgr.CgroupStats) *types.ProcessUsage {
+	return &types.ProcessUsage{
+		Timestamp:    cgroupStats.SystemNano,
+		ProcessCount: &types.UInt64Value{Value: cgroupStats.MostStats.PidsStats.Current},
+	}
+}
+
+func cgmgrToCRIMemory(cgroupStats *cgmgr.CgroupStats) *types.MemoryUsage {
+	return &types.MemoryUsage{
+		Timestamp:       cgroupStats.SystemNano,
+		UsageBytes:      &types.UInt64Value{Value: cgroupStats.MostStats.MemoryStats.Usage.Usage},
+		WorkingSetBytes: &types.UInt64Value{Value: cgroupStats.OtherMemStats.WorkingSet},
+		RssBytes:        &types.UInt64Value{Value: cgroupStats.OtherMemStats.Rss},
+		PageFaults:      &types.UInt64Value{Value: cgroupStats.OtherMemStats.PgFault},
+		MajorPageFaults: &types.UInt64Value{Value: cgroupStats.OtherMemStats.PgMajFault},
+		AvailableBytes:  &types.UInt64Value{Value: cgroupStats.OtherMemStats.AvailableBytes},
+	}
+}
+
+//func createMemoryStats(cgroupStats *cgmgr.Stats) (*types.MemoryUsage, error) {
+//	memUsage := cgroupStats.MemoryStats.Usage.Usage
+//	memLimit := MemLimitGivenSystem(cgroupStats.MemoryStats.Usage.Limit)
+//
+//	if err := updateWithMemoryStats(cgroupPath, memory, memUsage); err != nil {
+//		return memory, fmt.Errorf("unable to update with memory.stat info: %w", err)
+//	}
+//	return memory, nil
+//}
+
 // updateContainer calls into the runtime handler to update the container stats,
 // as well as populates the writable layer by calling into the container storage.
 // If this container already existed in the stats server, the CPU nano cores are calculated as well.
@@ -139,11 +197,12 @@ func (ss *StatsServer) updateContainer(c *oci.Container, sb *sandbox.Sandbox) *t
 	if c.StateNoLock().Status == oci.ContainerStateStopped {
 		return nil
 	}
-	cStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
+	cCgroupStats, err := ss.Runtime().ContainerStats(context.TODO(), c, sb.CgroupParent())
 	if err != nil {
 		logrus.Errorf("Error getting container stats %s: %v", c.ID(), err)
 		return nil
 	}
+	cStats := cgmgrStatsToCRIContainer(cCgroupStats, c)
 	ss.populateWritableLayer(cStats, c)
 	if oldcStats, ok := ss.ctrStats[c.ID()]; ok {
 		updateUsageNanoCores(oldcStats.Cpu, cStats.Cpu)
