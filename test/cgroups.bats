@@ -11,6 +11,20 @@ function teardown() {
 	cleanup_test
 }
 
+function configure_monitor_cgroup_for_conmonrs() {
+	local MONITOR_CGROUP="$1"
+	local NAME=conmonrs
+	cat << EOF >"$CRIO_CONFIG_DIR/01-$NAME.conf"
+[crio.runtime]
+default_runtime = "$NAME"
+[crio.runtime.runtimes.$NAME]
+runtime_path = "$RUNTIME_BINARY_PATH"
+runtime_root = "$RUNTIME_ROOT"
+runtime_type = "$RUNTIME_TYPE"
+monitor_cgroup = "$MONITOR_CGROUP"
+EOF
+}
+
 @test "pids limit" {
 	if ! grep -qEw ^pids /proc/cgroups; then
 		skip "pids cgroup controller is not available"
@@ -44,6 +58,24 @@ function teardown() {
 	fi
 
 	CONTAINER_CGROUP_MANAGER="systemd" CONTAINER_DROP_INFRA_CTR=false CONTAINER_MANAGE_NS_LIFECYCLE=false CONTAINER_CONMON_CGROUP="customcrioconmon.slice" start_crio
+
+	jq '	  .linux.cgroup_parent = "Burstablecriotest123.slice"' \
+		"$TESTDATA"/sandbox_config.json > "$TESTDIR"/sandbox_config_slice.json
+
+	pod_id=$(crictl runp "$TESTDIR"/sandbox_config_slice.json)
+
+	output=$(systemctl status "crio-conmon-$pod_id.scope")
+	[[ "$output" == *"customcrioconmon.slice"* ]]
+}
+
+@test "conmonrs custom cgroup with no infra container" {
+	if [[ $RUNTIME_TYPE != pod ]]; then
+		skip "not supported for conmon"
+	fi
+
+	configure_monitor_cgroup_for_conmonrs "customcrioconmon.slice"
+
+	CONTAINER_CGROUP_MANAGER="systemd" CONTAINER_DROP_INFRA_CTR=true start_crio
 
 	jq '	  .linux.cgroup_parent = "Burstablecriotest123.slice"' \
 		"$TESTDATA"/sandbox_config.json > "$TESTDIR"/sandbox_config_slice.json
