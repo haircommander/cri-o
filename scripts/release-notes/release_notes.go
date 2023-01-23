@@ -184,7 +184,7 @@ To verify the bill of materials (SBOM) in [SPDX](https://spdx.org) format using 
 	os.RemoveAll(outputFilePath)
 	if err := command.Execute(
 		"./build/bin/release-notes",
-		"--org=cri-o",
+		"--org=haircommander",
 		"--repo=cri-o",
 		"--branch="+currentBranch,
 		"--repo-path=/tmp/cri-o-repo",
