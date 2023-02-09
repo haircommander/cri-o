@@ -11,7 +11,7 @@ import (
 // ErrNotTTY not a TeleTYpewriter error.
 var ErrNotTTY = errors.New("not a terminal")
 
-// http://ascii-table.com/ansi-escape-sequences.php
+// https://github.com/dylanaraps/pure-sh-bible#cursor-movement
 const (
 	escOpen  = "\x1b["
 	cuuAndEd = "A\x1b[J"
@@ -20,19 +20,30 @@ const (
 // Writer is a buffered the writer that updates the terminal. The
 // contents of writer will be flushed when Flush is called.
 type Writer struct {
-	out        io.Writer
-	buf        bytes.Buffer
-	lines      int
-	fd         int
-	isTerminal bool
+	out      io.Writer
+	buf      bytes.Buffer
+	lines    int // how much lines to clear before flushing new ones
+	fd       int
+	terminal bool
+	termSize func(int) (int, int, error)
 }
 
 // New returns a new Writer with defaults.
 func New(out io.Writer) *Writer {
-	w := &Writer{out: out}
+	w := &Writer{
+		out: out,
+		termSize: func(_ int) (int, int, error) {
+			return -1, -1, ErrNotTTY
+		},
+	}
 	if f, ok := out.(*os.File); ok {
 		w.fd = int(f.Fd())
-		w.isTerminal = IsTerminal(w.fd)
+		if IsTerminal(w.fd) {
+			w.terminal = true
+			w.termSize = func(fd int) (int, int, error) {
+				return GetSize(fd)
+			}
+		}
 	}
 	return w
 }
@@ -67,18 +78,14 @@ func (w *Writer) ReadFrom(r io.Reader) (n int64, err error) {
 	return w.buf.ReadFrom(r)
 }
 
-// GetWidth returns width of underlying terminal.
-func (w *Writer) GetWidth() (int, error) {
-	if !w.isTerminal {
-		return -1, ErrNotTTY
-	}
-	tw, _, err := GetSize(w.fd)
-	return tw, err
+// GetTermSize returns WxH of underlying terminal.
+func (w *Writer) GetTermSize() (width, height int, err error) {
+	return w.termSize(w.fd)
 }
 
-func (w *Writer) ansiCuuAndEd() (err error) {
+func (w *Writer) ansiCuuAndEd() error {
 	buf := make([]byte, 8)
 	buf = strconv.AppendInt(buf[:copy(buf, escOpen)], int64(w.lines), 10)
-	_, err = w.out.Write(append(buf, cuuAndEd...))
-	return
+	_, err := w.out.Write(append(buf, cuuAndEd...))
+	return err
 }
