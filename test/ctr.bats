@@ -661,14 +661,8 @@ function check_oci_annotation() {
 	output=$(crictl exec --sync "$ctr_id" echo hello0 stdout)
 	[[ "$output" == *"hello0 stdout"* ]]
 
-	jq '	  .image.image = "quay.io/crio/stderr-test"
-		| .command = ["/bin/sleep", "600"]' \
-		"$TESTDATA"/container_config.json > "$newconfig"
-	ctr_id=$(crictl create "$pod_id" "$newconfig" "$TESTDATA"/sandbox_config.json)
-	crictl start "$ctr_id"
-
-	output=$(crictl exec --sync "$ctr_id" stderr)
-	[[ "$output" == *"this goes to stderr"* ]]
+	output=$(crictl exec --sync "$ctr_id" /bin/sh -c "echo hello0 stderr >&2")
+	[[ "$output" == *"hello0 stderr"* ]]
 }
 
 @test "ctr stop idempotent" {

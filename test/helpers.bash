@@ -99,7 +99,6 @@ IMAGES=(
     quay.io/crio/image-volume-test:latest
     quay.io/crio/oom:latest
     quay.io/crio/redis:alpine
-    quay.io/crio/stderr-test:latest
 )
 
 function img2dir() {
