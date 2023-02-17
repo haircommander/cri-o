@@ -96,9 +96,9 @@ IMAGES=(
     registry.k8s.io/pause:3.6
     quay.io/crio/busybox:latest
     quay.io/crio/fedora-ping:latest
-    quay.io/crio/image-volume-test:latest
     quay.io/crio/oom:latest
     quay.io/crio/redis:alpine
+    quay.io/haircommander/fedora-crio-ci:minimal
 )
 
 function img2dir() {
