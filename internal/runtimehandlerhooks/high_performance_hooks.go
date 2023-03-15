@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -259,50 +258,31 @@ func setCPUSLoadBalancing(c *oci.Container, enable bool, schedDomainDir string) 
 		return fmt.Errorf("find container %s CPUs", c.ID())
 	}
 
-	cpus, err := cpuset.Parse(lspec.Resources.CPU.Cpus)
-	if err != nil {
+	//cpus, err := cpuset.Parse(lspec.Resources.CPU.Cpus)
+	//if err != nil {
+	//	return err
+	//}
+
+	// configure kubepods.slice
+	//   find the cpus in kubepods.slice
+	//   find kubepods.slice/cpus.Difference(cpus)
+	//   write to not-balanced.slice
+	// create new cgroup for container in /sys/fs/cgroup/cpuset/not-balanced.slice/crio-ID.scope
+	//   cpus.String() to container's custom cpuset cgroup
+	//
+	if err := cgmgr.SetCgroupfsWorkloadSettings("", lspec.Resources, map[string]string{"cpuset": newParentCPUSet}); err != nil {
 		return err
 	}
 
-	for _, cpu := range cpus.ToSlice() {
-		cpuSchedDomainDir := fmt.Sprintf("%s/cpu%d", schedDomainDir, cpu)
-		err := filepath.Walk(cpuSchedDomainDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.Mode().IsRegular() || info.Name() != "flags" {
-				return nil
-			}
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			flags, err := strconv.Atoi(strings.Trim(string(content), "\n"))
-			if err != nil {
-				return err
-			}
-
-			var newContent string
-			if enable {
-				newContent = strconv.Itoa(flags | 1)
-			} else {
-				// we should set the LSB to 0 to disable the load balancing for the specified CPU
-				// in case of sched domain all flags can be represented by the binary number 111111111111111 that equals
-				// to 32767 in the decimal form
-				// see https://github.com/torvalds/linux/blob/0fe5f9ca223573167c4c4156903d751d2c8e160e/include/linux/sched/topology.h#L14
-				// for more information regarding the sched domain flags
-				newContent = strconv.Itoa(flags & 32766)
-			}
-
-			return os.WriteFile(path, []byte(newContent), 0o644)
-		})
-		if err != nil {
-			return err
-		}
+	if err := os.WriteFile(newParentCPUSet+"cpuset.sched_load_balance", []byte("0"), 0o644); err != nil {
+		return err
 	}
 
-	return nil
+	pid, err := c.Pid()
+	if err != nil {
+		return err
+	}
+	return cgmgr.MoveProcessToCgroup(newParentCPUSet, pid)
 }
 
 func setIRQLoadBalancing(ctx context.Context, c *oci.Container, enable bool, irqSmpAffinityFile, irqBalanceConfigFile string) error {

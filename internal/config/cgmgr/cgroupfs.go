@@ -11,6 +11,7 @@ import (
 
 	"github.com/containers/common/pkg/cgroups"
 	"github.com/containers/podman/v4/pkg/rootless"
+	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/utils"
 	libctrCgMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
 	cgcfgs "github.com/opencontainers/runc/libcontainer/configs"
@@ -104,16 +105,19 @@ func (*CgroupfsManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup strin
 	}
 
 	cgroupPath := fmt.Sprintf("%s/crio-conmon-%s", cgroupParent, cid)
-	control, err := cgroups.New(cgroupPath, &cgcfgs.Resources{})
-	if err != nil {
+	if err := SetCgroupfsWorkloadSettings(cgroupPath, resources, nil); err != nil {
+		return cgroupPath, err
+	}
+	if err := MoveProcessToCgroup(cgroupPath, pid); err != nil {
 		logrus.Warnf("Failed to add conmon to cgroupfs sandbox cgroup: %v", err)
 	}
-	if control == nil {
-		return cgroupPath, nil
-	}
+	return cgroupPath, nil
+}
 
-	if err := setWorkloadSettings(cgroupPath, resources); err != nil {
-		return cgroupPath, err
+func MoveProcessToCgroup(cgroupPath string, pid int) error {
+	control, err := cgroups.New(cgroupPath, &cgcfgs.Resources{})
+	if err != nil {
+		return err
 	}
 
 	// Record conmon's cgroup path in the container, so we can properly
@@ -124,30 +128,29 @@ func (*CgroupfsManager) MoveConmonToCgroup(cid, cgroupParent, conmonCgroup strin
 	// only happens in corner case where one does a manual deletion of the container
 	// through e.g. runc. This should be handled by implementing a conmon monitoring
 	// routine that does the cgroup cleanup once conmon is terminated.
-	if err := control.AddPid(pid); err != nil {
-		return "", fmt.Errorf("failed to add conmon to cgroupfs sandbox cgroup: %w", err)
-	}
-	return cgroupPath, nil
+	return control.AddPid(pid)
 }
 
-func setWorkloadSettings(cgPath string, resources *rspec.LinuxResources) (err error) {
-	if resources.CPU == nil {
-		return nil
+func SetCgroupfsWorkloadSettings(cgPath string, resources *rspec.LinuxResources, paths map[string]string) (err error) {
+	if node.CgroupIsV2() {
+		return fmt.Errorf("Not yet supported")
 	}
-
 	cg := &cgcfgs.Cgroup{
-		Path: "/" + cgPath,
 		Resources: &cgcfgs.Resources{
 			SkipDevices: true,
 			CpusetCpus:  resources.CPU.Cpus,
 		},
 		Rootless: rootless.IsRootless(),
 	}
+	if paths != nil {
+		cg.Path = "/" + cgPath
+	}
+
 	if resources.CPU.Shares != nil {
 		cg.Resources.CpuShares = *resources.CPU.Shares
 	}
 
-	mgr, err := libctrCgMgr.New(cg)
+	mgr, err := libctrCgMgr.NewWithPaths(cg, paths)
 	if err != nil {
 		return err
 	}
