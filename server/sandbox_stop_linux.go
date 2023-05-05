@@ -8,6 +8,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/runtimehandlerhooks"
+	ann "github.com/cri-o/cri-o/pkg/annotations"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
@@ -17,6 +18,14 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 	stopMutex := sb.StopMutex()
 	stopMutex.Lock()
 	defer stopMutex.Unlock()
+
+	// Unlink logs if they were linked
+	sbAnnotations := sb.Annotations()
+	if emptyDirVolName, ok := sbAnnotations[ann.LinkLogsAnnotation]; ok {
+		if err := unlinkLogs(sb, emptyDirVolName); err != nil {
+			log.Warnf(ctx, "Failed to unlink logs: %v", err)
+		}
+	}
 
 	// Clean up sandbox networking and close its network namespace.
 	if err := s.networkStop(ctx, sb); err != nil {

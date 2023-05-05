@@ -38,6 +38,10 @@ const (
 	// TrySkipVolumeSELinuxLabelAnnotation is the annotation used for optionally skipping relabeling a volume
 	// with the specified SELinux label.  The relabeling will be skipped if the top layer is already labeled correctly.
 	TrySkipVolumeSELinuxLabelAnnotation = "io.kubernetes.cri-o.TrySkipVolumeSELinuxLabel"
+
+	// LinkLogsAnnotations indicates that CRI-O should link the pod containers logs into the specified
+	// emptyDir volume
+	LinkLogsAnnotation = "io.kubernetes.cri-o.LinkLogs"
 )
 
 var AllAllowedAnnotations = []string{
@@ -52,4 +56,5 @@ var AllAllowedAnnotations = []string{
 	OCISeccompBPFHookAnnotation,
 	rdt.RdtContainerAnnotation,
 	TrySkipVolumeSELinuxLabelAnnotation,
+	LinkLogsAnnotation,
 }
