@@ -33,5 +33,4 @@ TESTS=("${@:-.}")
 export JOBS=${JOBS:-$(($(nproc --all) * 4))}
 
 # Run the tests.
-# execute bats --jobs "$JOBS" --tap "${TESTS[@]}"
-execute bats -f "ctr log linking" ctr.bats
+execute bats --jobs "$JOBS" --tap "${TESTS[@]}"
