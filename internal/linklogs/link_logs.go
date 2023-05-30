@@ -1,11 +1,12 @@
-package server
+package linklogs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/log"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -17,8 +18,8 @@ const (
 	kubeletEmptyDirLogDir = "kubernetes.io~empty-dir"
 )
 
-// linkLogs bind mounts the kubelet pod log directory under the specified empty dir volume
-func linkLogs(kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel string) error {
+// MountPodLogs bind mounts the kubelet pod log directory under the specified empty dir volume
+func MountPodLogs(ctx context.Context, kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel string) error {
 	// Validate the empty dir volume name
 	// This uses the same validation as the one in kubernetes
 	// It can be alphanumeric with dashes allowed in between
@@ -35,6 +36,7 @@ func linkLogs(kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel strin
 	}
 	podLogsDirectory := namespace + "_" + kubeName + "_" + kubePodUID
 	podLogsPath := filepath.Join(kubeletPodLogsRootDir, podLogsDirectory)
+	log.Infof(ctx, "Mounting from %s to %s for linked logs", podLogsPath, logDirMountPath)
 	if err := unix.Mount(podLogsPath, logDirMountPath, "bind", unix.MS_BIND|unix.MS_RDONLY, ""); err != nil {
 		return fmt.Errorf("failed to mount %v to %v: %v", podLogsPath, logDirMountPath, err)
 	}
@@ -44,14 +46,13 @@ func linkLogs(kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel strin
 	return nil
 }
 
-// unlinkLogs unmounts the pod log directory from the specified empty dir volume
-func unlinkLogs(sb *sandbox.Sandbox, emptyDirVolName string) error {
-	sbLabels := sb.Labels()
-	kubePodUID := sbLabels["io.kubernetes.pod.uid"]
+// UnmountPodLogs unmounts the pod log directory from the specified empty dir volume
+func UnmountPodLogs(ctx context.Context, kubePodUID, emptyDirVolName string) error {
 	emptyDirLoggingVolumePath := podEmptyDirPath(kubePodUID, emptyDirVolName)
-	logFileMountPath := filepath.Join(emptyDirLoggingVolumePath, "logs")
-	if _, err := os.Stat(logFileMountPath); !os.IsNotExist(err) {
-		if err := unix.Unmount(logFileMountPath, unix.MNT_DETACH); err != nil {
+	logDirMountPath := filepath.Join(emptyDirLoggingVolumePath, "logs")
+	log.Infof(ctx, "Unmounting %s for linked logs", logDirMountPath)
+	if _, err := os.Stat(logDirMountPath); !os.IsNotExist(err) {
+		if err := unix.Unmount(logDirMountPath, unix.MNT_DETACH); err != nil {
 			return fmt.Errorf("failed to unmounts logs: %v", err)
 		}
 	}

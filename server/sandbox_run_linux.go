@@ -22,6 +22,7 @@ import (
 	sboxfactory "github.com/cri-o/cri-o/internal/factory/sandbox"
 	"github.com/cri-o/cri-o/internal/lib"
 	libsandbox "github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/resourcestore"
@@ -562,7 +563,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 
 	// Link logs if requested
 	if emptyDirVolName, ok := kubeAnnotations[ann.LinkLogsAnnotation]; ok {
-		if err = linkLogs(kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel); err != nil {
+		if err = linklogs.MountPodLogs(ctx, kubePodUID, emptyDirVolName, namespace, kubeName, mountLabel); err != nil {
 			log.Warnf(ctx, "Failed to link logs: %v", err)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/containers/storage"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/runtimehandlerhooks"
@@ -12,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
+	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error {
@@ -22,7 +24,7 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 	// Unlink logs if they were linked
 	sbAnnotations := sb.Annotations()
 	if emptyDirVolName, ok := sbAnnotations[ann.LinkLogsAnnotation]; ok {
-		if err := unlinkLogs(sb, emptyDirVolName); err != nil {
+		if err := linklogs.UnmountPodLogs(ctx, sb.Labels()[kubeletTypes.KubernetesPodUIDLabel], emptyDirVolName); err != nil {
 			log.Warnf(ctx, "Failed to unlink logs: %v", err)
 		}
 	}
