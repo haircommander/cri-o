@@ -21,6 +21,7 @@ import (
 	"github.com/cri-o/cri-o/internal/config/rdt"
 	ctrfactory "github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	"github.com/cri-o/cri-o/internal/linklogs"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/internal/storage"
@@ -33,6 +34,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/sys/unix"
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
+	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/types"
 
 	"github.com/intel/goresctrl/pkg/blockio"
 )
@@ -828,6 +830,12 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrfactory.Cont
 
 	if os.Getenv(rootlessEnvName) != "" {
 		makeOCIConfigurationRootless(specgen)
+	}
+
+	if emptyDirVolName, ok := sb.Annotations()[crioann.LinkLogsAnnotation]; ok {
+		if err := linklogs.LinkContainerLogs(ctx, sb.Labels()[kubeletTypes.KubernetesPodUIDLabel], emptyDirVolName, ctr.ID(), containerConfig.Metadata); err != nil {
+			log.Warnf(ctx, "Failed to link container logs: %v", err)
+		}
 	}
 
 	saveOptions := generate.ExportOptions{}
