@@ -24,6 +24,11 @@ var WipeCommand = &cli.Command{
 			Aliases: []string{"f"},
 			Usage:   "force wipe by skipping the version check",
 		},
+		&cli.BoolFlag{
+			Name:    "repair",
+			Aliases: []string{"r"},
+			Usage:   "attempt to repair the storage root on an unclean shutdown, instead of removing it. This flag does nothing if a clean shutdown is detected.",
+		},
 	},
 }
 
@@ -64,7 +69,7 @@ func crioWipe(c *cli.Context) error {
 	// Note: this is only needed if the node rebooted.
 	// If there wasn't time to sync, we should clear the storage directory
 	if shouldWipeContainers && shutdownWasUnclean(config) {
-		return handleCleanShutdown(config, store)
+		return handleUncleanShutdown(config, store, c.IsSet("repair"))
 	}
 
 	// If crio is configured to wipe internally (and `--force` wasn't set)
@@ -113,7 +118,25 @@ func shutdownWasUnclean(config *crioconf.Config) bool {
 	return true
 }
 
-func handleCleanShutdown(config *crioconf.Config, store cstorage.Store) error {
+func handleUncleanShutdown(config *crioconf.Config, store cstorage.Store, repair bool) error {
+	if repair {
+		logrus.Infof("File %s not found. Attempting to repair storage directory %s because of suspected dirty shutdown", config.CleanShutdownFile, store.GraphRoot())
+		report, err := store.Check(cstorage.CheckEverything())
+		if err != nil {
+			logrus.Errorf("Failed to check storage: %v", err)
+		}
+		if errs := store.Repair(cstorage.RepairEverything()); errs != nil {
+			plural := "s"
+			if len(errs) == 1 {
+				plural = ""
+			}
+			logrus.Errorf("Failed to repair storage with %d err%s", len(errs), plural)
+			for err := range errs {
+				logrus.Errorf("%v", err)
+			}
+			return nil
+		}
+	}
 	logrus.Infof("File %s not found. Wiping storage directory %s because of suspected dirty shutdown", config.CleanShutdownFile, store.GraphRoot())
 	// If we do not do this, we may leak other resources that are not directly in the graphroot.
 	// Erroring here should not be fatal though, it's a best effort cleanup
