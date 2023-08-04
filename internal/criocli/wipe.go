@@ -6,6 +6,7 @@ import (
 	"os"
 
 	cstorage "github.com/containers/storage"
+	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/version"
 	crioconf "github.com/cri-o/cri-o/pkg/config"
@@ -63,7 +64,7 @@ func crioWipe(c *cli.Context) error {
 	// Then, check whether crio has shutdown with time to sync.
 	// Note: this is only needed if the node rebooted.
 	// If there wasn't time to sync, we should clear the storage directory
-	if shouldWipeContainers && shutdownWasUnclean(config) {
+	if shouldWipeContainers && lib.ShutdownWasUnclean(config) {
 		return handleCleanShutdown(config, store)
 	}
 
@@ -95,22 +96,6 @@ func crioWipe(c *cli.Context) error {
 	}
 
 	return nil
-}
-
-func shutdownWasUnclean(config *crioconf.Config) bool {
-	// CleanShutdownFile not configured, skip
-	if config.CleanShutdownFile == "" {
-		return false
-	}
-	// CleanShutdownFile isn't supported, skip
-	if _, err := os.Stat(config.CleanShutdownSupportedFileName()); err != nil {
-		return false
-	}
-	// CleanShutdownFile is present, indicating clean shutdown
-	if _, err := os.Stat(config.CleanShutdownFile); err == nil {
-		return false
-	}
-	return true
 }
 
 func handleCleanShutdown(config *crioconf.Config, store cstorage.Store) error {

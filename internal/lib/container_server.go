@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -100,6 +101,20 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 
 	if config == nil {
 		return nil, fmt.Errorf("cannot create container server: interface is nil")
+	}
+
+	if ShutdownWasUnclean(config) {
+		checkOptions := cstorage.CheckEverything()
+		report, err := store.Check(checkOptions)
+		if err != nil {
+			return nil, err
+		}
+		options := cstorage.RepairOptions{
+			RemoveContainers: true,
+		}
+		if errs := store.Repair(report, &options); len(errs) > 0 {
+			return nil, errors.Join(errs...)
+		}
 	}
 
 	imageService, err := storage.GetImageService(ctx, store, config)
@@ -775,4 +790,20 @@ func (c *ContainerServer) UpdateContainerLinuxResources(ctr *oci.Container, reso
 	ctr.SetSpec(&updatedSpec)
 
 	c.state.containers.Add(ctr.ID(), ctr)
+}
+
+func ShutdownWasUnclean(config *libconfig.Config) bool {
+	// CleanShutdownFile not configured, skip
+	if config.CleanShutdownFile == "" {
+		return false
+	}
+	// CleanShutdownFile isn't supported, skip
+	if _, err := os.Stat(config.CleanShutdownSupportedFileName()); err != nil {
+		return false
+	}
+	// CleanShutdownFile is present, indicating clean shutdown
+	if _, err := os.Stat(config.CleanShutdownFile); err == nil {
+		return false
+	}
+	return true
 }
