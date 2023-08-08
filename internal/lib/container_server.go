@@ -118,7 +118,7 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 			for _, err = range errs {
 				errstrings = append(errstrings, err.Error())
 			}
-			return nil, fmt.Errorf(strings.Join(errstrings, "\n"))
+			return nil, fmt.Errorf("%s", strings.Join(errstrings, "\n"))
 		}
 	}
 
