@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,7 +114,11 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 			RemoveContainers: true,
 		}
 		if errs := store.Repair(report, &options); len(errs) > 0 {
-			return nil, errors.Join(errs...)
+			var errstrings []string
+			for _, err = range errs {
+				errstrings = append(errstrings, err.Error())
+			}
+			return nil, fmt.Errorf(strings.Join(errstrings, "\n"))
 		}
 	}
 
