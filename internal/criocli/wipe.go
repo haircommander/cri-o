@@ -2,14 +2,12 @@ package criocli
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	cstorage "github.com/containers/storage"
 	"github.com/cri-o/cri-o/internal/lib"
 	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/internal/version"
-	crioconf "github.com/cri-o/cri-o/pkg/config"
 	json "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
@@ -95,24 +93,6 @@ func crioWipe(c *cli.Context) error {
 		return err
 	}
 
-	return nil
-}
-
-func handleCleanShutdown(config *crioconf.Config, store cstorage.Store) error {
-	logrus.Infof("File %s not found. Wiping storage directory %s because of suspected dirty shutdown", config.CleanShutdownFile, store.GraphRoot())
-	// If we do not do this, we may leak other resources that are not directly in the graphroot.
-	// Erroring here should not be fatal though, it's a best effort cleanup
-	if err := store.Wipe(); err != nil {
-		logrus.Infof("Failed to wipe storage cleanly: %v", err)
-	}
-	// unmount storage or else we will fail with EBUSY
-	if _, err := store.Shutdown(false); err != nil {
-		return fmt.Errorf("failed to shutdown storage before wiping: %w", err)
-	}
-	// totally remove storage, whatever is left (possibly orphaned layers)
-	if err := os.RemoveAll(store.GraphRoot()); err != nil {
-		return fmt.Errorf("failed to remove storage directory: %w", err)
-	}
 	return nil
 }
 
