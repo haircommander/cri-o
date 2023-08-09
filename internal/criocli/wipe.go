@@ -65,7 +65,7 @@ func crioWipe(c *cli.Context) error {
 	// Note: this is only needed if the node rebooted.
 	// If there wasn't time to sync, we should clear the storage directory
 	if shouldWipeContainers && lib.ShutdownWasUnclean(config) {
-		return handleCleanShutdown(config, store)
+		return lib.HandleUncleanShutdown(config, store)
 	}
 
 	// If crio is configured to wipe internally (and `--force` wasn't set)

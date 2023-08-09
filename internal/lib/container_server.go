@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -108,17 +107,19 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 		checkOptions := cstorage.CheckEverything()
 		report, err := store.Check(checkOptions)
 		if err != nil {
-			return nil, err
+			err = HandleUncleanShutdown(config, store)
+			if err != nil {
+				return nil, err
+			}
 		}
 		options := cstorage.RepairOptions{
 			RemoveContainers: true,
 		}
 		if errs := store.Repair(report, &options); len(errs) > 0 {
-			var errstrings []string
-			for _, err = range errs {
-				errstrings = append(errstrings, err.Error())
+			err = HandleUncleanShutdown(config, store)
+			if err != nil {
+				return nil, err
 			}
-			return nil, fmt.Errorf("%s", strings.Join(errstrings, "\n"))
 		}
 	}
 
@@ -811,4 +812,22 @@ func ShutdownWasUnclean(config *libconfig.Config) bool {
 		return false
 	}
 	return true
+}
+
+func HandleUncleanShutdown(config *libconfig.Config, store cstorage.Store) error {
+	logrus.Infof("File %s not found. Wiping storage directory %s because of suspected dirty shutdown", config.CleanShutdownFile, store.GraphRoot())
+	// If we do not do this, we may leak other resources that are not directly in the graphroot.
+	// Erroring here should not be fatal though, it's a best effort cleanup
+	if err := store.Wipe(); err != nil {
+		logrus.Infof("Failed to wipe storage cleanly: %v", err)
+	}
+	// unmount storage or else we will fail with EBUSY
+	if _, err := store.Shutdown(false); err != nil {
+		return fmt.Errorf("failed to shutdown storage before wiping: %w", err)
+	}
+	// totally remove storage, whatever is left (possibly orphaned layers)
+	if err := os.RemoveAll(store.GraphRoot()); err != nil {
+		return fmt.Errorf("failed to remove storage directory: %w", err)
+	}
+	return nil
 }
