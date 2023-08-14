@@ -505,6 +505,8 @@ type ImageConfig struct {
 	Registries []string `toml:"registries"`
 	// Temporary directory for big files
 	BigFilesTemporaryDir string `toml:"big_files_temporary_dir"`
+	// InternalRepair is used to repair the affected images.
+	InternalRepair bool `toml:"internal_repair"`
 }
 
 // NetworkConfig represents the "crio.network" TOML config table
@@ -863,6 +865,7 @@ func DefaultConfig() (*Config, error) {
 			PauseCommand:       "/pause",
 			ImageVolumes:       ImageVolumesMkdir,
 			SignaturePolicyDir: "/etc/crio/policies",
+			InternalRepair:     false,
 		},
 		NetworkConfig: NetworkConfig{
 			NetworkDir: cniConfigDir,

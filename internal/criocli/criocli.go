@@ -1137,6 +1137,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			EnvVars: []string{"DISABLE_HOSTPORT_MAPPING"},
 			Value:   defConf.DisableHostPortMapping,
 		},
+		&cli.BoolFlag{
+			Name:  "internal-repair",
+			Usage: "If true, CRI-O will check if contents of an image was modified or removed and repair the image.",
+			Value: defConf.InternalRepair,
+		},
 	}
 }
 
