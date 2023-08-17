@@ -327,6 +327,9 @@ func mergeConfig(config *libconfig.Config, ctx *cli.Context) error {
 	if ctx.IsSet("internal-wipe") {
 		config.InternalWipe = ctx.Bool("internal-wipe")
 	}
+	if ctx.IsSet("internal-repair") {
+		config.InternalRepair = ctx.Bool("internal-repair")
+	}
 	if ctx.IsSet("enable-metrics") {
 		config.EnableMetrics = ctx.Bool("enable-metrics")
 	}
@@ -1078,6 +1081,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Value:   defConf.InternalWipe,
 			EnvVars: []string{"CONTAINER_INTERNAL_WIPE"},
 		},
+		&cli.BoolFlag{
+			Name:    "internal-repair",
+			Usage:   "If true, CRI-O will check if contents of an image was modified or removed and repair the image.",
+			Value:   defConf.InternalRepair,
+			EnvVars: []string{"CONTAINER_INTERNAL_REPAIR"},
+		},
 		&cli.StringFlag{
 			Name:    "infra-ctr-cpuset",
 			Usage:   "CPU set to run infra containers, if not specified CRI-O will use all online CPUs to run infra containers.",
@@ -1136,12 +1145,6 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Usage:   "If true, CRI-O would disable the hostport mapping.",
 			EnvVars: []string{"DISABLE_HOSTPORT_MAPPING"},
 			Value:   defConf.DisableHostPortMapping,
-		},
-		&cli.BoolFlag{
-			Name:    "internal-repair",
-			Usage:   "If true, CRI-O will check if contents of an image was modified or removed and repair the image.",
-			EnvVars: []string{"CONTAINER_INTERNAL_REPAIR"},
-			Value:   defConf.InternalRepair,
 		},
 	}
 }
