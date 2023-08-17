@@ -104,6 +104,7 @@ func New(ctx context.Context, configIface libconfig.Iface) (*ContainerServer, er
 	}
 
 	if config.InternalRepair && ShutdownWasUnclean(config) {
+		log.Infof(ctx, "Shutdown unclean and internal_repair set: repairing container storage")
 		checkOptions := cstorage.CheckEverything()
 		report, err := store.Check(checkOptions)
 		if err != nil {
