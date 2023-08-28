@@ -22,6 +22,7 @@ import (
 	libCtrMgr "github.com/opencontainers/runc/libcontainer/cgroups/manager"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 )
@@ -60,7 +61,7 @@ func (h *HighPerformanceHooks) PreStart(ctx context.Context, c *oci.Container, s
 
 	// disable the CPU load balancing for the container CPUs
 	if shouldCPULoadBalancingBeDisabled(s.Annotations()) {
-		if err := disableCPULoadBalancing(c); err != nil {
+		if err := setCPULoadBalancing(c, false); err != nil {
 			return fmt.Errorf("set CPU load balancing: %w", err)
 		}
 	}
@@ -126,6 +127,13 @@ func (h *HighPerformanceHooks) PreStop(ctx context.Context, c *oci.Container, s 
 	if shouldIRQLoadBalancingBeDisabled(s.Annotations()) {
 		if err := setIRQLoadBalancing(ctx, c, true, IrqSmpAffinityProcFile, h.irqBalanceConfigFile); err != nil {
 			return fmt.Errorf("set IRQ load balancing: %w", err)
+		}
+	}
+
+	// disable the CPU load balancing for the container CPUs
+	if shouldCPULoadBalancingBeDisabled(s.Annotations()) {
+		if err := setCPULoadBalancing(c, true); err != nil {
+			return fmt.Errorf("set CPU load balancing: %w", err)
 		}
 	}
 
@@ -202,13 +210,8 @@ func annotationValueDeprecationWarning(annotation string) string {
 	return fmt.Sprintf("The usage of the annotation %q with value %q will be deprecated under 1.21", annotation, "true")
 }
 
-// disableCPULoadBalancing relies on the cpuset cgroup to disable load balancing for containers.
-// The requisite condition to allow this is `cpuset.sched_load_balance` field must be set to 0 for all cgroups
-// that intersect with `cpuset.cpus` of the container that desires load balancing.
-// Since CRI-O is the owner of the container cgroup, it must set this value for
-// the container. Some other entity (kubelet, external service) must ensure this is the case for all
-// other cgroups that intersect (at minimum: all parent cgroups of this cgroup).
-func disableCPULoadBalancing(c *oci.Container) error {
+// setCPULoadBalancing relies on the cpuset cgroup to disable load balancing for containers.
+func setCPULoadBalancing(c *oci.Container, enable bool) error {
 	lspec := c.Spec().Linux
 	if lspec == nil ||
 		lspec.Resources == nil ||
@@ -218,24 +221,138 @@ func disableCPULoadBalancing(c *oci.Container) error {
 	}
 
 	if node.CgroupIsV2() {
-		return fmt.Errorf("disabling CPU load balancing on cgroupv2 not yet supported")
+		return setCPULoadBalancingV2(c, enable)
+	}
+	if !enable {
+		return disableCPULoadBalancingV1(c)
+	}
+	// There is nothing to do in cgroupv1 to re-enable load balancing
+	return nil
+}
+
+// On cgroupv2 systems, a new kernel API has been added to support load balancing
+// in a "remote" partition, layers away from the root cgroup.
+// This is done with a special file `cpuset.cpus.exclusive` which can be written to
+// to request that cpuset be on standby for use by a cgroup that desires to be a partition.
+// To do this, each parent of the final cgroup must also have this value in the cpuset.cpus.exclusive,
+// and the final cgroup must have cpuset.cpus.partition = isolated.
+// This will cause the kernel to put that cpuset in a separate scheduling domain.
+// While this requires CRI-O to write to cgroups it does not own, it would be cumbersome to teach
+// other components in the system (kubelet/cpumanager) which cpu is newly set to exclusive each time
+// a pod request load balancing disabled.
+// Thus, this implementation assumes a certain amount of ownership CRI-O takes over this field. This
+// ownership may not be real in the future.
+func setCPULoadBalancingV2(c *oci.Container, enable bool) (retErr error) {
+	cpus, err := cpuset.Parse(c.Spec().Linux.Resources.CPU.Cpus)
+	if err != nil {
+		return err
 	}
 
+	cpusetPath, err := cpusetOfContainer(c)
+	if err != nil {
+		return err
+	}
+
+	// For each parent (excluding the root), the cpuset.cpus.exclusive
+	// must contain the required cgroup.
+	directories := strings.Split(cpusetPath, "/")
+	currentPath := "/sys/fs/cgroup"
+
+	// Save the old values of the cpuset.cpus.exclusive, so if this fails in the middle,
+	// the newly reserved cpu won't be in a subset of the cgroups and cause them to not be
+	// load balanced in the future.
+	valuesForRevert := make(map[string]string)
+	defer func() {
+		if retErr != nil {
+			for path, val := range valuesForRevert {
+				if err := cgroups.WriteFile(path, "cpuset.cpus.exclusive", val); err != nil {
+					logrus.Errorf("Failed to revert cpuset value %s for path %s: %v", val, path, err)
+				}
+			}
+		}
+	}()
+
+	for _, d := range directories {
+		if d == "" {
+			continue
+		}
+		currentPath += "/" + d
+		if !enable {
+			// if we're disabling, double check the cpuset.cpus are correctly set, or else we'll get EINVAL
+			if _, err := addOrRemoveCpusetFromFile(currentPath, "cpuset.cpus", cpus, !enable); err != nil {
+				return err
+			}
+		}
+		cpusStrForRevert, err := addOrRemoveCpusetFromFile(currentPath, "cpuset.cpus.exclusive", cpus, !enable)
+		if err != nil {
+			return err
+		}
+		valuesForRevert[currentPath] = cpusStrForRevert
+	}
+	err = cgroups.WriteFile(filepath.Join("/sys/fs/cgroup", cpusetPath), "cpuset.cpus.partition", "isolated")
+	// If we're re-enabling, and we can't find the cgroup, return no error.
+	if os.IsNotExist(err) && enable {
+		return nil
+	}
+	return err
+}
+
+func addOrRemoveCpusetFromFile(path, file string, cpus cpuset.CPUSet, add bool) (cpusStrForRevert string, _ error) {
+	currentCpusStr, err := cgroups.ReadFile(path, file)
+	if err != nil {
+		return "", err
+	}
+	currentCpus, err := cpuset.Parse(strings.TrimSpace(currentCpusStr))
+	if err != nil {
+		return "", err
+	}
+
+	targetCpus := cpuset.CPUSet{}
+	if add {
+		targetCpus = currentCpus.Union(cpus)
+	} else {
+		targetCpus = currentCpus.Difference(cpus)
+	}
+	if err := cgroups.WriteFile(path, file, targetCpus.String()); err != nil {
+		return "", err
+	}
+	return currentCpusStr, nil
+}
+
+// The requisite condition to allow this is `cpuset.sched_load_balance` field must be set to 0 for all cgroups
+// that intersect with `cpuset.cpus` of the container that desires load balancing.
+// Since CRI-O is the owner of the container cgroup, it must set this value for
+// the container. Some other entity (kubelet, external service) must ensure this is the case for all
+// other cgroups that intersect (at minimum: all parent cgroups of this cgroup).
+func disableCPULoadBalancingV1(c *oci.Container) error {
+	cpusetPath, err := cpusetOfContainer(c)
+	if err != nil {
+		return err
+	}
+	return cgroups.WriteFile("/sys/fs/cgroup/cpuset"+cpusetPath, "cpuset.sched_load_balance", "0")
+}
+
+func cpusetOfContainer(c *oci.Container) (string, error) {
 	pid, err := c.Pid()
 	if err != nil {
-		return fmt.Errorf("failed to get pid of container %s: %w", c.ID(), err)
+		return "", fmt.Errorf("failed to get pid of container %s: %w", c.ID(), err)
 	}
 	controllers, err := cgroups.ParseCgroupFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
 	if err != nil {
-		return fmt.Errorf("failed to get cgroups of container %s: %w", c.ID(), err)
+		return "", fmt.Errorf("failed to get cgroups of container %s: %w", c.ID(), err)
 	}
 
-	cpusetPath, ok := controllers["cpuset"]
+	path := "cpuset"
+	if node.CgroupIsV2() {
+		path = ""
+	}
+
+	cpusetPath, ok := controllers[path]
 	if !ok {
-		return fmt.Errorf("failed to get cpuset of container %s", c.ID())
+		return "", fmt.Errorf("failed to get cpuset of container %s", c.ID())
 	}
 
-	return cgroups.WriteFile("/sys/fs/cgroup/cpuset"+cpusetPath, "cpuset.sched_load_balance", "0")
+	return cpusetPath, nil
 }
 
 func setIRQLoadBalancing(ctx context.Context, c *oci.Container, enable bool, irqSmpAffinityFile, irqBalanceConfigFile string) error {
