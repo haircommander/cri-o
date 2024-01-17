@@ -26,6 +26,8 @@ import (
 const (
 	cacheKey     = "chunked-manifest-cache"
 	cacheVersion = 1
+
+	digestSha256Empty = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
 type metadata struct {
@@ -576,7 +578,10 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 		return byteSliceAsString(buf.Bytes()[from:to])
 	}
 
-	iter = jsoniter.ParseBytes(jsoniter.ConfigFastest, manifest)
+	pool := iter.Pool()
+	pool.ReturnIterator(iter)
+	iter = pool.BorrowIterator(manifest)
+
 	for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
 		if strings.ToLower(field) == "version" {
 			toc.Version = iter.ReadInt()
@@ -650,10 +655,22 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 					iter.Skip()
 				}
 			}
+			if m.Type == TypeReg && m.Size == 0 && m.Digest == "" {
+				m.Digest = digestSha256Empty
+			}
 			toc.Entries = append(toc.Entries, m)
 		}
-		break
 	}
+
+	// validate there is no extra data in the provided input.  This is a security measure to avoid
+	// that the digest we calculate for the TOC refers to the entire document.
+	if iter.Error != nil && iter.Error != io.EOF {
+		return nil, iter.Error
+	}
+	if iter.WhatIsNext() != jsoniter.InvalidValue || !errors.Is(iter.Error, io.EOF) {
+		return nil, fmt.Errorf("unexpected data after manifest")
+	}
+
 	toc.StringsBuf = buf
 	return &toc, nil
 }

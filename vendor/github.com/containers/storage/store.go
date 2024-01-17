@@ -1,6 +1,7 @@
 package storage
 
 import (
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	// register all of the built-in drivers
@@ -313,10 +315,10 @@ type Store interface {
 	// ApplyDiffer applies a diff to a layer.
 	// It is the caller responsibility to clean the staging directory if it is not
 	// successfully applied with ApplyDiffFromStagingDirectory.
-	ApplyDiffWithDiffer(to string, options *drivers.ApplyDiffOpts, differ drivers.Differ) (*drivers.DriverWithDifferOutput, error)
+	ApplyDiffWithDiffer(to string, options *drivers.ApplyDiffWithDifferOpts, differ drivers.Differ) (*drivers.DriverWithDifferOutput, error)
 
 	// ApplyDiffFromStagingDirectory uses stagingDirectory to create the diff.
-	ApplyDiffFromStagingDirectory(to, stagingDirectory string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffOpts) error
+	ApplyDiffFromStagingDirectory(to, stagingDirectory string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffWithDifferOpts) error
 
 	// CleanupStagingDirectory cleanups the staging directory.  It can be used to cleanup the staging directory on errors
 	CleanupStagingDirectory(stagingDirectory string) error
@@ -331,6 +333,10 @@ type Store interface {
 	// LayersByUncompressedDigest returns a slice of the layers with the
 	// specified uncompressed digest value recorded for them.
 	LayersByUncompressedDigest(d digest.Digest) ([]Layer, error)
+
+	// LayersByTOCDigest returns a slice of the layers with the
+	// specified TOC digest value recorded for them.
+	LayersByTOCDigest(d digest.Digest) ([]Layer, error)
 
 	// LayerSize returns a cached approximation of the layer's size, or -1
 	// if we don't have a value on hand.
@@ -960,6 +966,10 @@ func (s *store) load() error {
 		} else {
 			ris, err = newROImageStore(gipath)
 			if err != nil {
+				if errors.Is(err, syscall.EROFS) {
+					logrus.Debugf("Ignoring creation of lockfiles on read-only file systems %q, %v", gipath, err)
+					continue
+				}
 				return err
 			}
 		}
@@ -2666,34 +2676,23 @@ func (s *store) DeleteContainer(id string) error {
 		}
 
 		var wg multierror.Group
-		wg.Go(func() error { return s.containerStore.Delete(id) })
 
 		middleDir := s.graphDriverName + "-containers"
 
 		wg.Go(func() error {
 			gcpath := filepath.Join(s.GraphRoot(), middleDir, container.ID)
-			// attempt a simple rm -rf first
-			if err := os.RemoveAll(gcpath); err == nil {
-				return nil
-			}
-			// and if it fails get to the more complicated cleanup
 			return system.EnsureRemoveAll(gcpath)
 		})
 
 		wg.Go(func() error {
 			rcpath := filepath.Join(s.RunRoot(), middleDir, container.ID)
-			// attempt a simple rm -rf first
-			if err := os.RemoveAll(rcpath); err == nil {
-				return nil
-			}
-			// and if it fails get to the more complicated cleanup
 			return system.EnsureRemoveAll(rcpath)
 		})
 
 		if multierr := wg.Wait(); multierr != nil {
 			return multierr.ErrorOrNil()
 		}
-		return nil
+		return s.containerStore.Delete(id)
 	})
 }
 
@@ -2752,7 +2751,13 @@ func (s *store) Status() ([][2]string, error) {
 	return rlstore.Status()
 }
 
+//go:embed VERSION
+var storageVersion string
+
 func (s *store) Version() ([][2]string, error) {
+	if trimmedVersion := strings.TrimSpace(storageVersion); trimmedVersion != "" {
+		return [][2]string{{"Version", trimmedVersion}}, nil
+	}
 	return [][2]string{}, nil
 }
 
@@ -2926,7 +2931,7 @@ func (s *store) Diff(from, to string, options *DiffOptions) (io.ReadCloser, erro
 	return nil, ErrLayerUnknown
 }
 
-func (s *store) ApplyDiffFromStagingDirectory(to, stagingDirectory string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffOpts) error {
+func (s *store) ApplyDiffFromStagingDirectory(to, stagingDirectory string, diffOutput *drivers.DriverWithDifferOutput, options *drivers.ApplyDiffWithDifferOpts) error {
 	_, err := writeToLayerStore(s, func(rlstore rwLayerStore) (struct{}, error) {
 		if !rlstore.Exists(to) {
 			return struct{}{}, ErrLayerUnknown
@@ -2943,7 +2948,7 @@ func (s *store) CleanupStagingDirectory(stagingDirectory string) error {
 	return err
 }
 
-func (s *store) ApplyDiffWithDiffer(to string, options *drivers.ApplyDiffOpts, differ drivers.Differ) (*drivers.DriverWithDifferOutput, error) {
+func (s *store) ApplyDiffWithDiffer(to string, options *drivers.ApplyDiffWithDifferOpts, differ drivers.Differ) (*drivers.DriverWithDifferOutput, error) {
 	return writeToLayerStore(s, func(rlstore rwLayerStore) (*drivers.DriverWithDifferOutput, error) {
 		if to != "" && !rlstore.Exists(to) {
 			return nil, ErrLayerUnknown
@@ -3003,6 +3008,13 @@ func (s *store) LayersByUncompressedDigest(d digest.Digest) ([]Layer, error) {
 		return nil, fmt.Errorf("looking for layers matching digest %q: %w", d, err)
 	}
 	return s.layersByMappedDigest(func(r roLayerStore, d digest.Digest) ([]Layer, error) { return r.LayersByUncompressedDigest(d) }, d)
+}
+
+func (s *store) LayersByTOCDigest(d digest.Digest) ([]Layer, error) {
+	if err := d.Validate(); err != nil {
+		return nil, fmt.Errorf("looking for TOC matching digest %q: %w", d, err)
+	}
+	return s.layersByMappedDigest(func(r roLayerStore, d digest.Digest) ([]Layer, error) { return r.LayersByTOCDigest(d) }, d)
 }
 
 func (s *store) LayerSize(id string) (int64, error) {
@@ -3418,16 +3430,16 @@ func (s *store) Shutdown(force bool) ([]string, error) {
 		err = fmt.Errorf("a layer is mounted: %w", ErrLayerUsedByContainer)
 	}
 	if err == nil {
-		err = s.graphDriver.Cleanup()
 		// We don’t retain the lastWrite value, and treat this update as if someone else did the .Cleanup(),
 		// so that we reload after a .Shutdown() the same way other processes would.
 		// Shutdown() is basically an error path, so reliability is more important than performance.
 		if _, err2 := s.graphLock.RecordWrite(); err2 != nil {
-			if err == nil {
-				err = err2
-			} else {
-				err = fmt.Errorf("(graphLock.RecordWrite failed: %v) %w", err2, err)
-			}
+			err = fmt.Errorf("graphLock.RecordWrite failed: %w", err2)
+		}
+		// Do the Cleanup() only after we are sure that the change was recorded with RecordWrite(), so that
+		// the next user picks it.
+		if err == nil {
+			err = s.graphDriver.Cleanup()
 		}
 	}
 	return mounted, err
@@ -3556,8 +3568,8 @@ func SetDefaultConfigFilePath(path string) {
 }
 
 // DefaultConfigFile returns the path to the storage config file used
-func DefaultConfigFile(rootless bool) (string, error) {
-	return types.DefaultConfigFile(rootless)
+func DefaultConfigFile() (string, error) {
+	return types.DefaultConfigFile()
 }
 
 // ReloadConfigurationFile parses the specified configuration file and overrides
