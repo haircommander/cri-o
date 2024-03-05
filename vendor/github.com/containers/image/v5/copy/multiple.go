@@ -33,7 +33,12 @@ type instanceCopy struct {
 	sourceDigest digest.Digest
 
 	// Fields which can be used by callers when operation
+	// is `instanceCopyCopy`
+	copyForceCompressionFormat bool
+
+	// Fields which can be used by callers when operation
 	// is `instanceCopyClone`
+	cloneArtifactType       string
 	cloneCompressionVariant OptionCompressionVariant
 	clonePlatform           *imgspecv1.Platform
 	cloneAnnotations        map[string]string
@@ -122,9 +127,14 @@ func prepareInstanceCopies(list internalManifest.List, instanceDigests []digest.
 		if err != nil {
 			return res, fmt.Errorf("getting details for instance %s: %w", instanceDigest, err)
 		}
+		forceCompressionFormat, err := shouldRequireCompressionFormatMatch(options)
+		if err != nil {
+			return nil, err
+		}
 		res = append(res, instanceCopy{
-			op:           instanceCopyCopy,
-			sourceDigest: instanceDigest,
+			op:                         instanceCopyCopy,
+			sourceDigest:               instanceDigest,
+			copyForceCompressionFormat: forceCompressionFormat,
 		})
 		platform := platformV1ToPlatformComparable(instanceDetails.ReadOnly.Platform)
 		compressionList := compressionsByPlatform[platform]
@@ -133,6 +143,7 @@ func prepareInstanceCopies(list internalManifest.List, instanceDigests []digest.
 				res = append(res, instanceCopy{
 					op:                      instanceCopyClone,
 					sourceDigest:            instanceDigest,
+					cloneArtifactType:       instanceDetails.ReadOnly.ArtifactType,
 					cloneCompressionVariant: compressionVariant,
 					clonePlatform:           instanceDetails.ReadOnly.Platform,
 					cloneAnnotations:        maps.Clone(instanceDetails.ReadOnly.Annotations),
@@ -230,7 +241,7 @@ func (c *copier) copyMultipleImages(ctx context.Context) (copiedManifest []byte,
 			logrus.Debugf("Copying instance %s (%d/%d)", instance.sourceDigest, i+1, len(instanceCopyList))
 			c.Printf("Copying image %s (%d/%d)\n", instance.sourceDigest, i+1, len(instanceCopyList))
 			unparsedInstance := image.UnparsedInstance(c.rawSource, &instanceCopyList[i].sourceDigest)
-			updated, err := c.copySingleImage(ctx, unparsedInstance, &instanceCopyList[i].sourceDigest, copySingleImageOptions{requireCompressionFormatMatch: false})
+			updated, err := c.copySingleImage(ctx, unparsedInstance, &instanceCopyList[i].sourceDigest, copySingleImageOptions{requireCompressionFormatMatch: instance.copyForceCompressionFormat})
 			if err != nil {
 				return nil, fmt.Errorf("copying image %d/%d from manifest list: %w", i+1, len(instanceCopyList), err)
 			}
@@ -259,6 +270,7 @@ func (c *copier) copyMultipleImages(ctx context.Context) (copiedManifest []byte,
 				AddDigest:                updated.manifestDigest,
 				AddSize:                  int64(len(updated.manifest)),
 				AddMediaType:             updated.manifestMIMEType,
+				AddArtifactType:          instance.cloneArtifactType,
 				AddPlatform:              instance.clonePlatform,
 				AddAnnotations:           instance.cloneAnnotations,
 				AddCompressionAlgorithms: updated.compressionAlgorithms,
@@ -331,7 +343,7 @@ func (c *copier) copyMultipleImages(ctx context.Context) (copiedManifest []byte,
 	if err != nil {
 		return nil, err
 	}
-	sigs = append(sigs, newSigs...)
+	sigs = append(slices.Clone(sigs), newSigs...)
 
 	c.Printf("Storing list signatures\n")
 	if err := c.dest.PutSignaturesWithFormat(ctx, sigs, nil); err != nil {
