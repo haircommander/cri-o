@@ -1,10 +1,10 @@
 //go:build linux
-// +build linux
 
 package cgroups
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +13,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/containers/storage/pkg/unshare"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
@@ -21,6 +24,8 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups/fs2"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -29,6 +34,10 @@ var (
 	// ErrCgroupV1Rootless means the cgroup v1 were attempted to be used in rootless environment
 	ErrCgroupV1Rootless = errors.New("no support for CGroups V1 in rootless environments")
 	ErrStatCgroup       = errors.New("no cgroup available for gathering user statistics")
+
+	isUnifiedOnce sync.Once
+	isUnified     bool
+	isUnifiedErr  error
 )
 
 // CgroupControl controls a cgroup hierarchy
@@ -72,12 +81,13 @@ const (
 var handlers map[string]controllerHandler
 
 func init() {
-	handlers = make(map[string]controllerHandler)
-	handlers[CPU] = getCPUHandler()
-	handlers[CPUset] = getCpusetHandler()
-	handlers[Memory] = getMemoryHandler()
-	handlers[Pids] = getPidsHandler()
-	handlers[Blkio] = getBlkioHandler()
+	handlers = map[string]controllerHandler{
+		CPU:    getCPUHandler(),
+		CPUset: getCpusetHandler(),
+		Memory: getMemoryHandler(),
+		Pids:   getPidsHandler(),
+		Blkio:  getBlkioHandler(),
+	}
 }
 
 // getAvailableControllers get the available controllers
@@ -93,7 +103,7 @@ func getAvailableControllers(exclude map[string]controllerHandler, cgroup2 bool)
 			}
 			// userSlice already contains '/' so not adding here
 			basePath := cgroupRoot + userSlice
-			controllersFile = fmt.Sprintf("%s/cgroup.controllers", basePath)
+			controllersFile = basePath + "/cgroup.controllers"
 		}
 		controllersFileBytes, err := os.ReadFile(controllersFile)
 		if err != nil {
@@ -134,8 +144,8 @@ func getAvailableControllers(exclude map[string]controllerHandler, cgroup2 bool)
 	return controllers, nil
 }
 
-// GetAvailableControllers get string:bool map of all the available controllers
-func GetAvailableControllers(exclude map[string]controllerHandler, cgroup2 bool) ([]string, error) {
+// AvailableControllers get string:bool map of all the available controllers
+func AvailableControllers(exclude map[string]controllerHandler, cgroup2 bool) ([]string, error) {
 	availableControllers, err := getAvailableControllers(exclude, cgroup2)
 	if err != nil {
 		return nil, err
@@ -269,7 +279,7 @@ func readFileByKeyAsUint64(path, key string) (uint64, error) {
 	for _, line := range strings.Split(string(content), "\n") {
 		fields := strings.SplitN(line, " ", 2)
 		if fields[0] == key {
-			v := cleanString(string(fields[1]))
+			v := cleanString(fields[1])
 			if v == "max" {
 				return math.MaxUint64, nil
 			}
@@ -379,7 +389,7 @@ func Load(path string) (*CgroupControl, error) {
 // CreateSystemdUnit creates the systemd cgroup
 func (c *CgroupControl) CreateSystemdUnit(path string) error {
 	if !c.systemd {
-		return fmt.Errorf("the cgroup controller is not using systemd")
+		return errors.New("the cgroup controller is not using systemd")
 	}
 
 	conn, err := systemdDbus.NewWithContext(context.TODO())
@@ -391,20 +401,13 @@ func (c *CgroupControl) CreateSystemdUnit(path string) error {
 	return systemdCreate(c.config.Resources, path, conn)
 }
 
-// GetUserConnection returns an user connection to D-BUS
-func GetUserConnection(uid int) (*systemdDbus.Conn, error) {
-	return systemdDbus.NewConnection(func() (*dbus.Conn, error) {
-		return dbusAuthConnection(uid, dbus.SessionBusPrivate)
-	})
-}
-
 // CreateSystemdUserUnit creates the systemd cgroup for the specified user
 func (c *CgroupControl) CreateSystemdUserUnit(path string, uid int) error {
 	if !c.systemd {
-		return fmt.Errorf("the cgroup controller is not using systemd")
+		return errors.New("the cgroup controller is not using systemd")
 	}
 
-	conn, err := GetUserConnection(uid)
+	conn, err := UserConnection(uid)
 	if err != nil {
 		return err
 	}
@@ -498,10 +501,7 @@ func (c *CgroupControl) AddPid(pid int) error {
 		return fs2.CreateCgroupPath(path, c.config)
 	}
 
-	names := make([]string, 0, len(handlers))
-	for n := range handlers {
-		names = append(names, n)
-	}
+	names := maps.Keys(handlers)
 
 	for _, c := range c.additionalControllers {
 		if !c.symlink {
@@ -542,7 +542,7 @@ func (c *CgroupControl) Stat() (*cgroups.Stats, error) {
 	return &m, nil
 }
 
-func readCgroup2MapPath(path string) (map[string][]string, error) {
+func readCgroupMapPath(path string) (map[string][]string, error) {
 	ret := map[string][]string{}
 	f, err := os.Open(path)
 	if err != nil {
@@ -570,5 +570,308 @@ func readCgroup2MapPath(path string) (map[string][]string, error) {
 func readCgroup2MapFile(ctr *CgroupControl, name string) (map[string][]string, error) {
 	p := filepath.Join(cgroupRoot, ctr.config.Path, name)
 
-	return readCgroup2MapPath(p)
+	return readCgroupMapPath(p)
+}
+
+func (c *CgroupControl) createCgroupDirectory(controller string) (bool, error) {
+	cPath := c.getCgroupv1Path(controller)
+	_, err := os.Stat(cPath)
+	if err == nil {
+		return false, nil
+	}
+
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+
+	if err := os.MkdirAll(cPath, 0o755); err != nil {
+		return false, fmt.Errorf("creating cgroup for %s: %w", controller, err)
+	}
+	return true, nil
+}
+
+var TestMode bool
+
+func createCgroupv2Path(path string) (deferredError error) {
+	if !strings.HasPrefix(path, cgroupRoot+"/") {
+		return fmt.Errorf("invalid cgroup path %s", path)
+	}
+	content, err := os.ReadFile(cgroupRoot + "/cgroup.controllers")
+	if err != nil {
+		return err
+	}
+	ctrs := bytes.Fields(content)
+	res := append([]byte("+"), bytes.Join(ctrs, []byte(" +"))...)
+
+	current := "/sys/fs"
+	elements := strings.Split(path, "/")
+	for i, e := range elements[3:] {
+		current = filepath.Join(current, e)
+		if i > 0 {
+			if err := os.Mkdir(current, 0o755); err != nil {
+				if !os.IsExist(err) {
+					return err
+				}
+			} else {
+				// If the directory was created, be sure it is not left around on errors.
+				defer func() {
+					if deferredError != nil {
+						os.Remove(current)
+					}
+				}()
+			}
+		}
+		// We enable the controllers for all the path components except the last one.  It is not allowed to add
+		// PIDs if there are already enabled controllers.
+		if i < len(elements[3:])-1 {
+			if err := os.WriteFile(filepath.Join(current, "cgroup.subtree_control"), res, 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func cleanString(s string) string {
+	return strings.Trim(s, "\n")
+}
+
+func readAcct(ctr *CgroupControl, name string) (uint64, error) {
+	p := filepath.Join(ctr.getCgroupv1Path(CPUAcct), name)
+	return readFileAsUint64(p)
+}
+
+func readAcctList(ctr *CgroupControl, name string) ([]uint64, error) {
+	p := filepath.Join(ctr.getCgroupv1Path(CPUAcct), name)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	r := []uint64{}
+	for _, s := range strings.Split(string(data), " ") {
+		s = cleanString(s)
+		if s == "" {
+			break
+		}
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", s, err)
+		}
+		r = append(r, v)
+	}
+	return r, nil
+}
+
+func cpusetCopyFromParent(path string, cgroupv2 bool) error {
+	for _, file := range []string{"cpuset.cpus", "cpuset.mems"} {
+		if _, err := cpusetCopyFileFromParent(path, file, cgroupv2); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cpusetCopyFileFromParent(dir, file string, cgroupv2 bool) ([]byte, error) {
+	if dir == cgroupRoot {
+		return nil, fmt.Errorf("could not find parent to initialize cpuset %s", file)
+	}
+	path := filepath.Join(dir, file)
+	parentPath := path
+	if cgroupv2 {
+		parentPath += ".effective"
+	}
+	data, err := os.ReadFile(parentPath)
+	if err != nil {
+		// if the file doesn't exist, it is likely that the cpuset controller
+		// is not enabled in the kernel.
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if strings.Trim(string(data), "\n") != "" {
+		return data, nil
+	}
+	data, err = cpusetCopyFileFromParent(filepath.Dir(dir), file, cgroupv2)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return nil, fmt.Errorf("write %s: %w", path, err)
+	}
+	return data, nil
+}
+
+// SystemCPUUsage returns the system usage for all the cgroups
+func SystemCPUUsage() (uint64, error) {
+	cgroupv2, err := IsCgroup2UnifiedMode()
+	if err != nil {
+		return 0, err
+	}
+	if !cgroupv2 {
+		p := filepath.Join(cgroupRoot, CPUAcct, "cpuacct.usage")
+		return readFileAsUint64(p)
+	}
+
+	files, err := os.ReadDir(cgroupRoot)
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, file := range files {
+		if !file.IsDir() {
+			continue
+		}
+		p := filepath.Join(cgroupRoot, file.Name(), "cpu.stat")
+
+		values, err := readCgroupMapPath(p)
+		if err != nil {
+			return 0, err
+		}
+
+		if val, found := values["usage_usec"]; found {
+			v, err := strconv.ParseUint(cleanString(val[0]), 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			total += v * 1000
+		}
+	}
+	return total, nil
+}
+
+// IsCgroup2UnifiedMode returns whether we are running in cgroup 2 cgroup2 mode.
+func IsCgroup2UnifiedMode() (bool, error) {
+	isUnifiedOnce.Do(func() {
+		var st syscall.Statfs_t
+		if err := syscall.Statfs("/sys/fs/cgroup", &st); err != nil {
+			isUnified, isUnifiedErr = false, err
+		} else {
+			isUnified, isUnifiedErr = st.Type == unix.CGROUP2_SUPER_MAGIC, nil
+		}
+	})
+	return isUnified, isUnifiedErr
+}
+
+// UserConnection returns an user connection to D-BUS
+func UserConnection(uid int) (*systemdDbus.Conn, error) {
+	return systemdDbus.NewConnection(func() (*dbus.Conn, error) {
+		return dbusAuthConnection(uid, dbus.SessionBusPrivateNoAutoStartup)
+	})
+}
+
+// UserOwnsCurrentSystemdCgroup checks whether the current EUID owns the
+// current cgroup.
+func UserOwnsCurrentSystemdCgroup() (bool, error) {
+	uid := os.Geteuid()
+
+	cgroup2, err := IsCgroup2UnifiedMode()
+	if err != nil {
+		return false, err
+	}
+
+	f, err := os.Open("/proc/self/cgroup")
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, ":", 3)
+
+		if len(parts) < 3 {
+			continue
+		}
+
+		var cgroupPath string
+
+		if cgroup2 {
+			cgroupPath = filepath.Join(cgroupRoot, parts[2])
+		} else {
+			if parts[1] != "name=systemd" {
+				continue
+			}
+			cgroupPath = filepath.Join(cgroupRoot, "systemd", parts[2])
+		}
+
+		st, err := os.Stat(cgroupPath)
+		if err != nil {
+			return false, err
+		}
+		s := st.Sys()
+		if s == nil {
+			return false, fmt.Errorf("stat cgroup path %s", cgroupPath)
+		}
+
+		if int(s.(*syscall.Stat_t).Uid) != uid {
+			return false, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("parsing file /proc/self/cgroup: %w", err)
+	}
+	return true, nil
+}
+
+// rmDirRecursively delete recursively a cgroup directory.
+// It differs from os.RemoveAll as it doesn't attempt to unlink files.
+// On cgroupfs we are allowed only to rmdir empty directories.
+func rmDirRecursively(path string) error {
+	killProcesses := func(signal syscall.Signal) {
+		if signal == unix.SIGKILL {
+			if err := os.WriteFile(filepath.Join(path, "cgroup.kill"), []byte("1"), 0o600); err == nil {
+				return
+			}
+		}
+		// kill all the processes that are still part of the cgroup
+		if procs, err := os.ReadFile(filepath.Join(path, "cgroup.procs")); err == nil {
+			for _, pidS := range strings.Split(string(procs), "\n") {
+				if pid, err := strconv.Atoi(pidS); err == nil {
+					_ = unix.Kill(pid, signal)
+				}
+			}
+		}
+	}
+
+	if err := os.Remove(path); err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, i := range entries {
+		if i.IsDir() {
+			if err := rmDirRecursively(filepath.Join(path, i.Name())); err != nil {
+				return err
+			}
+		}
+	}
+
+	attempts := 0
+	for {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if errors.Is(err, unix.EBUSY) {
+			// send a SIGTERM after 3 second
+			if attempts == 300 {
+				killProcesses(unix.SIGTERM)
+			}
+			// send SIGKILL after 8 seconds
+			if attempts == 800 {
+				killProcesses(unix.SIGKILL)
+			}
+			// give up after 10 seconds
+			if attempts < 1000 {
+				time.Sleep(time.Millisecond * 10)
+				attempts++
+				continue
+			}
+		}
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
 }

@@ -1,5 +1,4 @@
 //go:build linux || freebsd
-// +build linux freebsd
 
 package netavark
 
@@ -48,7 +47,7 @@ func (e *ipamError) Error() string {
 	return msg
 }
 
-func newIPAMError(cause error, msg string, args ...interface{}) *ipamError {
+func newIPAMError(cause error, msg string, args ...any) *ipamError {
 	return &ipamError{
 		msg:   fmt.Sprintf(msg, args...),
 		cause: cause,
@@ -65,7 +64,7 @@ func (n *netavarkNetwork) openDB() (*bbolt.DB, error) {
 	return db, nil
 }
 
-// allocIPs will allocate ips for the the container. It will change the
+// allocIPs will allocate ips for the container. It will change the
 // NetworkOptions in place. When static ips are given it will validate
 // that these are free to use and will allocate them to the container.
 func (n *netavarkNetwork) allocIPs(opts *types.NetworkOptions) error {
