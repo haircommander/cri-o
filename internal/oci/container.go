@@ -583,6 +583,9 @@ func (c *Container) SetAsStopping() (setToStopping bool) {
 
 func (c *Container) WaitOnStopTimeout(ctx context.Context, timeout int64) {
 	c.stopLock.Lock()
+	if !c.state.Finished.IsZero() {
+		return
+	}
 	if !c.stopping {
 		c.stopLock.Unlock()
 		return
@@ -606,7 +609,6 @@ func (c *Container) SetAsDoneStopping() {
 		close(watcher)
 	}
 	c.stopWatchers = make([]chan struct{}, 0)
-	c.stopping = false
 	close(c.stopTimeoutChan)
 	c.stopLock.Unlock()
 }

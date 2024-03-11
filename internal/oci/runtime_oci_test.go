@@ -179,6 +179,22 @@ var _ = t.Describe("Oci", func() {
 			<-stoppedChan
 			verifyContainerNotStopped(sut)
 		})
+		It("should not rerun stopLoop after stopped", func() {
+			// Given
+			containerIgnoreSignalCmdrunnerMock(sleepProcess, runner)
+			sut.SetAsStopping()
+			go runtime.StopLoopForContainer(sut)
+
+			// When
+			waitOnContainerTimeout(sut, shortTimeout, mediumTimeout, sleepProcess)
+			verifyContainerStopped(sut, sleepProcess)
+
+			// Then
+			for i := 0; i < 10; i++ {
+				// This should exit instantly
+				waitOnContainerTimeout(sut, mediumTimeout, shortTimeout, sleepProcess)
+			}
+		})
 	})
 	Context("TruncateAndReadFile", func() {
 		tests := []struct {
