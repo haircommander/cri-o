@@ -6,8 +6,8 @@ import (
 	"os"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/containers/podman/v4/pkg/annotations"
-	"github.com/containers/podman/v4/pkg/errorhandling"
+	"github.com/containers/podman/v5/pkg/annotations"
+	"github.com/containers/podman/v5/pkg/errorhandling"
 	"github.com/containers/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/factory/container"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"

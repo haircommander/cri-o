@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 	"github.com/containers/storage/pkg/archive"
 	"github.com/cri-o/cri-o/internal/mockutils"
 	"github.com/cri-o/cri-o/internal/oci"

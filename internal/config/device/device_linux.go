@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	createconfig "github.com/containers/podman/v4/pkg/specgen/generate"
+	createconfig "github.com/containers/podman/v5/pkg/specgen/generate"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 )

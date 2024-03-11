@@ -16,8 +16,8 @@ import (
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/podman/v4/pkg/checkpoint/crutils"
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/checkpoint/crutils"
+	"github.com/containers/podman/v5/pkg/criu"
 	"github.com/containers/storage/pkg/pools"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/log"

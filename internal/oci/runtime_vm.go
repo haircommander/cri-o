@@ -31,7 +31,7 @@ import (
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	conmonconfig "github.com/containers/conmon/runner/config"
-	"github.com/containers/podman/v4/pkg/annotations"
+	"github.com/containers/podman/v5/pkg/annotations"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/pkg/config"

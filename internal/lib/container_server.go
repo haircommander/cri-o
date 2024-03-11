@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/containers/common/pkg/hooks"
-	"github.com/containers/podman/v4/pkg/annotations"
+	"github.com/containers/podman/v5/pkg/annotations"
 	cstorage "github.com/containers/storage"
 	"github.com/containers/storage/pkg/ioutils"
 	"github.com/containers/storage/pkg/truncindex"

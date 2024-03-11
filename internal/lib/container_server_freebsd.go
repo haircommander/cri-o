@@ -3,7 +3,7 @@ package lib
 import (
 	"fmt"
 
-	"github.com/containers/podman/v4/pkg/annotations"
+	"github.com/containers/podman/v5/pkg/annotations"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 )
 

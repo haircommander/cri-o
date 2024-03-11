@@ -8,7 +8,7 @@ import (
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/intel/goresctrl/pkg/blockio"
 
-	stdannotations "github.com/containers/podman/v4/pkg/annotations"
+	stdannotations "github.com/containers/podman/v5/pkg/annotations"
 	"github.com/cri-o/cri-o/internal/config/cgmgr"
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/config/rdt"

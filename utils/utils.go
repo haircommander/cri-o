@@ -10,7 +10,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 
-	"github.com/containers/podman/v4/pkg/lookup"
+	"github.com/containers/podman/v5/pkg/lookup"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/sirupsen/logrus"

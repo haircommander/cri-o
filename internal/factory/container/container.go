@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/podman/v4/pkg/annotations"
+	"github.com/containers/podman/v5/pkg/annotations"
 	"github.com/containers/storage/pkg/stringid"
 	"github.com/cri-o/cri-o/internal/config/capabilities"
 	"github.com/cri-o/cri-o/internal/config/device"

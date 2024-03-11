@@ -38,7 +38,7 @@ type defaultImpl struct{}
 func (*defaultImpl) Pull(ctx context.Context, sys *types.SystemContext, ref string) (*Artifact, error) {
 	log.Infof(ctx, "Pulling OCI artifact from ref: %s", ref)
 
-	storeOpts, err := storage.DefaultStoreOptions(false, 0)
+	storeOpts, err := storage.DefaultStoreOptions()
 	if err != nil {
 		return nil, fmt.Errorf("get default storage options: %w", err)
 	}

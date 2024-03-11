@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/containers/podman/v4/pkg/criu"
+	"github.com/containers/podman/v5/pkg/criu"
 )
 
 func main() {
