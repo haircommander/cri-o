@@ -608,16 +608,19 @@ func (r *runtimeVM) StopContainer(ctx context.Context, c *Container, timeout int
 	log.Debugf(ctx, "RuntimeVM.StopContainer() start")
 	defer log.Debugf(ctx, "RuntimeVM.StopContainer() end")
 
-	if err := c.ShouldBeStopped(); err != nil {
-		if errors.Is(err, ErrContainerStopped) {
-			err = nil
-		}
-		return err
-	}
-
 	// Lock the container
 	c.opLock.Lock()
 	defer c.opLock.Unlock()
+
+	// Runtime OCI checks the process still exists instead of this,
+	// but runtime VM can't easily do that.
+	switch c.state.Status {
+	case ContainerStateStopped: // no-op
+		return ErrContainerStopped
+	case ContainerStatePaused:
+		return errors.New("cannot stop paused container")
+	}
+	return nil
 
 	// Cancel the context before returning to ensure goroutines are stopped.
 	ctx, cancel := context.WithCancel(r.ctx)
