@@ -44,6 +44,13 @@ const (
 
 	// Command line flag used to specify the run root directory
 	rootFlag = "--root"
+
+	// Used to delay periodic process liveness check. Part of the
+	// container stop loop where a goroutine wakes up on a regular
+	// basis to check whether a given PID (process) continues to
+	// run. This allows to short-circuit stop logic if the process
+	// has already been terminated.
+	stopProcessWatchSleep = 100 * time.Millisecond
 )
 
 // runtimeOCI is the Runtime interface implementation relying on conmon to
@@ -413,9 +420,10 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 	if v, found := os.LookupEnv("XDG_RUNTIME_DIR"); found {
 		execCmd.Env = append(execCmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=%s", v))
 	}
+	// execCmd.SysProcAttr = sysProcAttrPlatform()
 	var cmdErr, copyError error
 	if tty {
-		cmdErr = ttyCmd(execCmd, stdin, stdout, resizeChan)
+		cmdErr = ttyCmd(execCmd, stdin, stdout, resizeChan, c)
 	} else {
 		var r, w *os.File
 		if stdin != nil {
@@ -453,6 +461,12 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 			return err
 		}
 
+		pid := execCmd.Process.Pid
+		if err := c.AddExecPID(pid, true); err != nil {
+			return err
+		}
+		defer c.DeleteExecPID(pid)
+
 		// The read side of the pipe should be closed after the container process has been started.
 		if r != nil {
 			if err := r.Close(); err != nil {
@@ -464,6 +478,7 @@ func (r *runtimeOCI) ExecContainer(ctx context.Context, c *Container, cmd []stri
 		}
 
 		cmdErr = execCmd.Wait()
+
 	}
 
 	if copyError != nil {
@@ -628,6 +643,12 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 			}
 		}()
 
+		// A neat trick we can do is register the exec PID before we send info down the start pipe.
+		// Doing so guarantees we can short circuit the exec process if the container is stopping already.
+		if err := c.AddExecPID(cmd.Process.Pid, false); err != nil {
+			return err
+		}
+
 		if r.handler.MonitorExecCgroup == config.MonitorExecCgroupContainer && r.config.InfraCtrCPUSet != "" {
 			// Update the exec's cgroup
 			containerPid, err := c.pid()
@@ -658,8 +679,13 @@ func (r *runtimeOCI) ExecSyncContainer(ctx context.Context, c *Container, comman
 		}
 	}
 
+	// defer in case the Pid is changed after Wait()
+	pid := cmd.Process.Pid
+
 	// first, wait till the command is done
 	waitErr := cmd.Wait()
+
+	c.DeleteExecPID(pid)
 
 	// regardless of what is in waitErr
 	// we should attempt to decode the output of the parent pipe
@@ -820,6 +846,8 @@ func (r *runtimeOCI) StopLoopForContainer(c *Container) {
 	ctx := context.Background()
 	ctx, span := log.StartSpan(ctx)
 	defer span.End()
+
+	go c.KillExecPIDs()
 
 	c.opLock.Lock()
 
