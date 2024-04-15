@@ -7,8 +7,8 @@ import (
 
 	"github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/config"
-	"github.com/containers/common/pkg/util"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 )
 
 // GetBridgeInterfaceNames returns all bridge interface names
@@ -28,9 +28,7 @@ func GetBridgeInterfaceNames(n NetUtil) []string {
 func GetUsedNetworkNames(n NetUtil) []string {
 	names := make([]string, 0, n.Len())
 	n.ForEach(func(net types.Network) {
-		if net.Driver == types.BridgeNetworkDriver {
-			names = append(names, net.NetworkInterface)
-		}
+		names = append(names, net.Name)
 	})
 	return names
 }
@@ -53,7 +51,7 @@ func GetFreeDeviceName(n NetUtil) (string, error) {
 	// Start by 1, 0 is reserved for the default network
 	for i := 1; i < 1000000; i++ {
 		deviceName := fmt.Sprintf("%s%d", n.DefaultInterfaceName(), i)
-		if !util.StringInSlice(deviceName, names) {
+		if !slices.Contains(names, deviceName) {
 			logrus.Debugf("found free device name %s", deviceName)
 			return deviceName, nil
 		}

@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package cgroups
 
@@ -26,10 +25,10 @@ func systemdCreate(resources *configs.Resources, path string, c *systemdDbus.Con
 	var lastError error
 	for i := 0; i < 2; i++ {
 		properties := []systemdDbus.Property{
-			systemdDbus.PropDescription(fmt.Sprintf("cgroup %s", name)),
+			systemdDbus.PropDescription("cgroup " + name),
 			systemdDbus.PropWants(slice),
 		}
-		ioString := ""
+		var ioString string
 		v2, _ := IsCgroup2UnifiedMode()
 		if v2 {
 			ioString = "IOAccounting"
@@ -250,7 +249,6 @@ func resourcesToProps(res *configs.Resources, v2 bool) (map[string]uint64, map[s
 			} else {
 				structMap["BlockIODeviceWeight"] = append(structMap["BlockIODeviceWeight"], newWeight)
 			}
-
 		}
 	}
 
