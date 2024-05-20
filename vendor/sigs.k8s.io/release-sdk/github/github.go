@@ -27,10 +27,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v58/github"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/release-sdk/git"
 	"sigs.k8s.io/release-sdk/github/internal"
 	"sigs.k8s.io/release-utils/env"
@@ -94,7 +95,7 @@ type Client interface {
 		context.Context, string, string, *github.CommitsListOptions,
 	) ([]*github.RepositoryCommit, *github.Response, error)
 	ListPullRequestsWithCommit(
-		context.Context, string, string, string, *github.PullRequestListOptions,
+		context.Context, string, string, string, *github.ListOptions,
 	) ([]*github.PullRequest, *github.Response, error)
 	ListMilestones(
 		context.Context, string, string, *github.MilestoneListOptions,
@@ -150,6 +151,9 @@ type Client interface {
 	ListComments(
 		context.Context, string, string, int, *github.IssueListCommentsOptions,
 	) ([]*github.IssueComment, *github.Response, error)
+	RequestPullRequestReview(
+		context.Context, string, string, int, []string, []string,
+	) (*github.PullRequest, error)
 }
 
 // NewIssueOptions is a struct of optional fields for new issues
@@ -158,6 +162,20 @@ type NewIssueOptions struct {
 	State     string   // open, closed or all. Defaults to "open"
 	Assignees []string // List of GitHub handles of extra assignees, must be collaborators
 	Labels    []string // List of labels to apply. They will be created if new
+}
+
+// UpdateReleasePageOptions is a struct of optional fields for creating/updating releases.
+type UpdateReleasePageOptions struct {
+	// Name is the name/title of the release.
+	Name *string
+	// Body is the body/content of the release (e.g. release notes).
+	Body *string
+	// Draft is marking the release as draft, if set to true.
+	Draft *bool
+	// Prerelease is marking the release as a pre-release, if set to true.
+	Prerelease *bool
+	// Latest is marking the release to be set as latest at the time of updating, if set to true.
+	Latest *bool
 }
 
 // TODO: we should clean up the functions listed below and agree on the same
@@ -214,7 +232,7 @@ func NewEnterpriseWithToken(baseURL, uploadURL, token string) (*GitHub, error) {
 		))
 	}
 	logrus.Debugf("Using %s Enterprise GitHub client", state)
-	ghclient, err := github.NewEnterpriseClient(baseURL, uploadURL, client)
+	ghclient, err := github.NewClient(client).WithEnterpriseURLs(baseURL, uploadURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to new github client: %s", err)
 	}
@@ -281,7 +299,7 @@ func (g *githubClient) ListCommits(
 
 func (g *githubClient) ListPullRequestsWithCommit(
 	ctx context.Context, owner, repo, sha string,
-	opt *github.PullRequestListOptions,
+	opt *github.ListOptions,
 ) ([]*github.PullRequest, *github.Response, error) {
 	for shouldRetry := internal.DefaultGithubErrChecker(); ; {
 		prs, resp, err := g.PullRequests.ListPullRequestsWithCommit(
@@ -375,12 +393,28 @@ func (g *githubClient) CreatePullRequest(
 		MaintainerCanModify: github.Bool(true),
 	}
 
-	pr, _, err := g.PullRequests.Create(ctx, owner, repo, newPullRequest)
-	if err != nil {
-		return pr, fmt.Errorf("creating pull request: %w", err)
+	for shouldRetry := internal.DefaultGithubErrChecker(); ; {
+		pr, _, err := g.PullRequests.Create(ctx, owner, repo, newPullRequest)
+		if !shouldRetry(err) {
+			return pr, err
+		}
+	}
+}
+
+func (g *githubClient) RequestPullRequestReview(
+	ctx context.Context, owner, repo string, prNumber int, reviewers, teamReviewers []string,
+) (*github.PullRequest, error) {
+	reviewersRequest := github.ReviewersRequest{
+		Reviewers:     reviewers,
+		TeamReviewers: teamReviewers,
 	}
 
-	logrus.Infof("Successfully created PR #%d", pr.GetNumber())
+	pr, _, err := g.PullRequests.RequestReviewers(ctx, owner, repo, prNumber, reviewersRequest)
+	if err != nil {
+		return pr, fmt.Errorf("requesting reviewers for PR %d: %w", prNumber, err)
+	}
+
+	logrus.Infof("Successfully added reviewers for PR #%d", pr.GetNumber())
 	return pr, nil
 }
 
@@ -840,6 +874,19 @@ func (g *GitHub) CreatePullRequest(
 		return pr, err
 	}
 
+	logrus.Infof("Successfully created PR #%d", pr.GetNumber())
+	return pr, nil
+}
+
+func (g *GitHub) RequestPullRequestReview(
+	owner, repo string, prNumber int, reviewers, teamReviewers []string,
+) (*github.PullRequest, error) {
+	// Use the client to create a new PR
+	pr, err := g.Client().RequestPullRequestReview(context.Background(), owner, repo, prNumber, reviewers, teamReviewers)
+	if err != nil {
+		return pr, err
+	}
+
 	return pr, nil
 }
 
@@ -962,19 +1009,52 @@ func (g *GitHub) UpdateReleasePage(
 	tag, commitish, name, body string,
 	isDraft, isPrerelease bool,
 ) (release *github.RepositoryRelease, err error) {
-	logrus.Infof("Updating release page for %s", tag)
+	return g.UpdateReleasePageWithOptions(owner, repo, releaseID, tag, commitish, &UpdateReleasePageOptions{
+		Name:       &name,
+		Body:       &body,
+		Draft:      &isDraft,
+		Prerelease: &isPrerelease,
+	})
+}
 
-	// Create the options for the
-	releaseData := &github.RepositoryRelease{
-		TagName:         &tag,
-		TargetCommitish: &commitish,
-		Name:            &name,
-		Body:            &body,
-		Draft:           &isDraft,
-		Prerelease:      &isPrerelease,
+// toRepositoryRelease builds a repository release from the set of options.
+func (u *UpdateReleasePageOptions) toRepositoryRelease() *github.RepositoryRelease {
+	request := &github.RepositoryRelease{}
+	request.Name = u.Name
+	request.Body = u.Body
+	request.Draft = u.Draft
+	request.Prerelease = u.Prerelease
+
+	if u.Latest != nil {
+		if *u.Latest {
+			request.MakeLatest = ptr.To("true")
+		} else {
+			request.MakeLatest = ptr.To("false")
+		}
 	}
 
-	// Call the client
+	return request
+}
+
+// UpdateReleasePageWithOptions updates release pages (same as UpdateReleasePage),
+// but does so by taking a UpdateReleasePageOptions parameter. It will _not_ set
+// a release as latest unless the corresponding option is set.
+func (g *GitHub) UpdateReleasePageWithOptions(owner, repo string,
+	releaseID int64,
+	tag, commitish string,
+	opts *UpdateReleasePageOptions,
+) (release *github.RepositoryRelease, err error) {
+	logrus.Infof("Updating release page for %s", tag)
+
+	if opts == nil {
+		opts = &UpdateReleasePageOptions{}
+	}
+
+	releaseData := opts.toRepositoryRelease()
+	releaseData.TagName = &tag
+	releaseData.TargetCommitish = &commitish
+
+	// Call the client.
 	release, err = g.Client().UpdateReleasePage(
 		context.Background(), owner, repo, releaseID, releaseData,
 	)
