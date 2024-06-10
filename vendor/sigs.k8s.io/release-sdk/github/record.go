@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v60/github"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,6 +51,7 @@ const (
 	gitHubAPIListMilestones             gitHubAPI = "ListMilestones"
 	gitHubAPIListIssues                 gitHubAPI = "ListIssues"
 	gitHubAPIListComments               gitHubAPI = "ListComments"
+	gitHubAPICheckRateLimit             gitHubAPI = "CheckRateLimit"
 )
 
 type apiRecord struct {
@@ -99,7 +100,7 @@ func (c *githubNotesRecordClient) ListCommits(ctx context.Context, owner, repo s
 	return commits, resp, nil
 }
 
-func (c *githubNotesRecordClient) ListPullRequestsWithCommit(ctx context.Context, owner, repo, sha string, opt *github.PullRequestListOptions) ([]*github.PullRequest, *github.Response, error) {
+func (c *githubNotesRecordClient) ListPullRequestsWithCommit(ctx context.Context, owner, repo, sha string, opt *github.ListOptions) ([]*github.PullRequest, *github.Response, error) {
 	prs, resp, err := c.client.ListPullRequestsWithCommit(ctx, owner, repo, sha, opt)
 	if err != nil {
 		return nil, nil, err
@@ -213,6 +214,12 @@ func (c *githubNotesRecordClient) ListTags(
 
 func (c *githubNotesRecordClient) CreatePullRequest(
 	_ context.Context, owner, repo, baseBranchName, headBranchName, title, body string, //nolint: revive
+) (*github.PullRequest, error) {
+	return &github.PullRequest{}, nil
+}
+
+func (c *githubNotesRecordClient) RequestPullRequestReview(
+	ctx context.Context, owner, repo string, prNumber int, reviewers, teamReviewers []string, //nolint: revive
 ) (*github.PullRequest, error) {
 	return &github.PullRequest{}, nil
 }
@@ -337,6 +344,19 @@ func (c *githubNotesRecordClient) ListComments(
 		return nil, nil, err
 	}
 	return comments, resp, nil
+}
+
+func (c *githubNotesRecordClient) CheckRateLimit(
+	ctx context.Context,
+) (*github.RateLimits, *github.Response, error) {
+	rt, resp, err := c.client.CheckRateLimit(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.recordAPICall(gitHubAPICheckRateLimit, rt, resp); err != nil {
+		return nil, nil, err
+	}
+	return rt, resp, nil
 }
 
 // recordAPICall records a single GitHub API call into a JSON file by ensuring
