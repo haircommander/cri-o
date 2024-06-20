@@ -15,29 +15,24 @@ func inspect(decorators []decor.Decorator) (dest []decor.Decorator) {
 		if decorator == nil {
 			continue
 		}
-		if d, ok := decorator.(interface {
-			PlaceHolders() []decor.Decorator
-		}); ok {
-			dest = append(dest, d.PlaceHolders()...)
-		}
 		dest = append(dest, decorator)
 	}
 	return
-}
-
-// AppendDecorators let you inject decorators to the bar's right side.
-func AppendDecorators(decorators ...decor.Decorator) BarOption {
-	decorators = inspect(decorators)
-	return func(s *bState) {
-		s.aDecorators = decorators
-	}
 }
 
 // PrependDecorators let you inject decorators to the bar's left side.
 func PrependDecorators(decorators ...decor.Decorator) BarOption {
 	decorators = inspect(decorators)
 	return func(s *bState) {
-		s.pDecorators = decorators
+		s.decorators[0] = decorators
+	}
+}
+
+// AppendDecorators let you inject decorators to the bar's right side.
+func AppendDecorators(decorators ...decor.Decorator) BarOption {
+	decorators = inspect(decorators)
+	return func(s *bState) {
+		s.decorators[1] = decorators
 	}
 }
 
@@ -93,10 +88,10 @@ func BarFillerOnComplete(message string) BarOption {
 
 // BarFillerMiddleware provides a way to augment the underlying BarFiller.
 func BarFillerMiddleware(middle func(BarFiller) BarFiller) BarOption {
+	if middle == nil {
+		return nil
+	}
 	return func(s *bState) {
-		if middle == nil {
-			return
-		}
 		s.filler = middle(s.filler)
 	}
 }
@@ -134,11 +129,11 @@ func makeExtenderFunc(filler BarFiller, rev bool) extenderFunc {
 		for {
 			b, err := buf.ReadBytes('\n')
 			if err != nil {
+				buf.Reset()
 				break
 			}
 			rows = append(rows, bytes.NewReader(b))
 		}
-		buf.Reset()
 		return rows, err
 	}
 
