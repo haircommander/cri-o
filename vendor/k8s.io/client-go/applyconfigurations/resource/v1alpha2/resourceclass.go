@@ -28,7 +28,7 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// ResourceClassApplyConfiguration represents an declarative configuration of the ResourceClass type for use
+// ResourceClassApplyConfiguration represents a declarative configuration of the ResourceClass type for use
 // with apply.
 type ResourceClassApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
@@ -36,9 +36,10 @@ type ResourceClassApplyConfiguration struct {
 	DriverName                       *string                                             `json:"driverName,omitempty"`
 	ParametersRef                    *ResourceClassParametersReferenceApplyConfiguration `json:"parametersRef,omitempty"`
 	SuitableNodes                    *corev1.NodeSelectorApplyConfiguration              `json:"suitableNodes,omitempty"`
+	StructuredParameters             *bool                                               `json:"structuredParameters,omitempty"`
 }
 
-// ResourceClass constructs an declarative configuration of the ResourceClass type for use with
+// ResourceClass constructs a declarative configuration of the ResourceClass type for use with
 // apply.
 func ResourceClass(name string) *ResourceClassApplyConfiguration {
 	b := &ResourceClassApplyConfiguration{}
@@ -263,4 +264,18 @@ func (b *ResourceClassApplyConfiguration) WithParametersRef(value *ResourceClass
 func (b *ResourceClassApplyConfiguration) WithSuitableNodes(value *corev1.NodeSelectorApplyConfiguration) *ResourceClassApplyConfiguration {
 	b.SuitableNodes = value
 	return b
+}
+
+// WithStructuredParameters sets the StructuredParameters field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StructuredParameters field is set to the value of the last call.
+func (b *ResourceClassApplyConfiguration) WithStructuredParameters(value bool) *ResourceClassApplyConfiguration {
+	b.StructuredParameters = &value
+	return b
+}
+
+// GetName retrieves the value of the Name field in the declarative configuration.
+func (b *ResourceClassApplyConfiguration) GetName() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.Name
 }
