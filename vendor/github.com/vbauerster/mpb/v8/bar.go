@@ -44,12 +44,11 @@ type bState struct {
 	rmOnComplete      bool
 	noPop             bool
 	autoRefresh       bool
-	aDecorators       []decor.Decorator
-	pDecorators       []decor.Decorator
+	buffers           [3]*bytes.Buffer
+	decorators        [2][]decor.Decorator
 	averageDecorators []decor.AverageDecorator
 	ewmaDecorators    []decor.EwmaDecorator
 	shutdownListeners []decor.ShutdownListener
-	buffers           [3]*bytes.Buffer
 	filler            BarFiller
 	extender          extenderFunc
 	renderReq         chan<- time.Time
@@ -61,7 +60,6 @@ type renderFrame struct {
 	shutdown     int
 	rmOnComplete bool
 	noPop        bool
-	done         bool
 	err          error
 }
 
@@ -82,10 +80,10 @@ func newBar(ctx context.Context, container *Progress, bs *bState) *Bar {
 	return bar
 }
 
-// ProxyReader wraps io.Reader with metrics required for progress tracking.
-// If `r` is 'unknown total/size' reader it's mandatory to call
-// (*Bar).SetTotal(-1, true) method after (io.Reader).Read returns io.EOF.
-// If bar is already completed or aborted, returns nil.
+// ProxyReader wraps io.Reader with metrics required for progress
+// tracking. If `r` is 'unknown total/size' reader it's mandatory
+// to call `(*Bar).SetTotal(-1, true)` after the wrapper returns
+// `io.EOF`. If bar is already completed or aborted, returns nil.
 // Panics if `r` is nil.
 func (b *Bar) ProxyReader(r io.Reader) io.ReadCloser {
 	if r == nil {
@@ -144,7 +142,13 @@ func (b *Bar) Current() int64 {
 // operation for example.
 func (b *Bar) SetRefill(amount int64) {
 	select {
-	case b.operateState <- func(s *bState) { s.refill = amount }:
+	case b.operateState <- func(s *bState) {
+		if amount < s.current {
+			s.refill = amount
+		} else {
+			s.refill = s.current
+		}
+	}:
 	case <-b.done:
 	}
 }
@@ -154,10 +158,7 @@ func (b *Bar) TraverseDecorators(cb func(decor.Decorator)) {
 	iter := make(chan decor.Decorator)
 	select {
 	case b.operateState <- func(s *bState) {
-		for _, decorators := range [][]decor.Decorator{
-			s.pDecorators,
-			s.aDecorators,
-		} {
+		for _, decorators := range s.decorators {
 			for _, d := range decorators {
 				iter <- d
 			}
@@ -171,11 +172,10 @@ func (b *Bar) TraverseDecorators(cb func(decor.Decorator)) {
 	}
 }
 
-// EnableTriggerComplete enables triggering complete event. It's
-// effective only for bars which were constructed with `total <= 0` and
-// after total has been set with (*Bar).SetTotal(int64, false). If bar
-// has been incremented to the total, complete event is triggered right
-// away.
+// EnableTriggerComplete enables triggering complete event. It's effective
+// only for bars which were constructed with `total <= 0` and after total
+// has been set with `(*Bar).SetTotal(int64, false)`. If `curren >= total`
+// at the moment of call, complete event is triggered right away.
 func (b *Bar) EnableTriggerComplete() {
 	select {
 	case b.operateState <- func(s *bState) {
@@ -194,11 +194,11 @@ func (b *Bar) EnableTriggerComplete() {
 	}
 }
 
-// SetTotal sets total to an arbitrary value. It's effective only for
-// bar which was constructed with `total <= 0`. Setting total to negative
-// value is equivalent to (*Bar).SetTotal((*Bar).Current(), bool) but faster.
-// If triggerCompletion is true, total value is set to current and
-// complete event is triggered right away.
+// SetTotal sets total to an arbitrary value. It's effective only for bar
+// which was constructed with `total <= 0`. Setting total to negative value
+// is equivalent to `(*Bar).SetTotal((*Bar).Current(), bool)` but faster. If
+// triggerCompletion is true, total value is set to current and complete
+// event is triggered right away.
 func (b *Bar) SetTotal(total int64, triggerCompletion bool) {
 	select {
 	case b.operateState <- func(s *bState) {
@@ -246,9 +246,7 @@ func (b *Bar) EwmaSetCurrent(current int64, iterDur time.Duration) {
 	}
 	select {
 	case b.operateState <- func(s *bState) {
-		if n := current - s.current; n > 0 {
-			s.decoratorEwmaUpdate(n, iterDur)
-		}
+		s.decoratorEwmaUpdate(current-s.current, iterDur)
 		s.current = current
 		if s.triggerComplete && s.current >= s.total {
 			s.current = s.total
@@ -301,9 +299,6 @@ func (b *Bar) EwmaIncrBy(n int, iterDur time.Duration) {
 // EwmaIncrInt64 increments progress by amount of n and updates EWMA based
 // decorators by dur of a single iteration.
 func (b *Bar) EwmaIncrInt64(n int64, iterDur time.Duration) {
-	if n <= 0 {
-		return
-	}
 	select {
 	case b.operateState <- func(s *bState) {
 		s.decoratorEwmaUpdate(n, iterDur)
@@ -332,13 +327,13 @@ func (b *Bar) DecoratorAverageAdjust(start time.Time) {
 // priority, i.e. bar will be on top. If you don't need to set priority
 // dynamically, better use BarPriority option.
 func (b *Bar) SetPriority(priority int) {
-	b.container.UpdateBarPriority(b, priority)
+	b.container.UpdateBarPriority(b, priority, false)
 }
 
 // Abort interrupts bar's running goroutine. Abort won't be engaged
 // if bar is already in complete state. If drop is true bar will be
 // removed as well. To make sure that bar has been removed call
-// (*Bar).Wait method.
+// `(*Bar).Wait()` method.
 func (b *Bar) Abort(drop bool) {
 	select {
 	case b.operateState <- func(s *bState) {
@@ -409,31 +404,26 @@ func (b *Bar) serve(ctx context.Context, bs *bState) {
 }
 
 func (b *Bar) render(tw int) {
-	var done bool
 	fn := func(s *bState) {
-		var rows []io.Reader
+		frame := new(renderFrame)
 		stat := newStatistics(tw, s)
 		r, err := s.draw(stat)
 		if err != nil {
-			b.frameCh <- &renderFrame{err: err}
+			for _, buf := range s.buffers {
+				buf.Reset()
+			}
+			frame.err = err
+			b.frameCh <- frame
 			return
 		}
-		rows = append(rows, r)
+		frame.rows = append(frame.rows, r)
 		if s.extender != nil {
-			rows, err = s.extender(rows, stat)
-			if err != nil {
-				b.frameCh <- &renderFrame{err: err}
-				return
-			}
-		}
-		frame := &renderFrame{
-			rows:         rows,
-			shutdown:     s.shutdown,
-			rmOnComplete: s.rmOnComplete,
-			noPop:        s.noPop,
-			done:         done,
+			frame.rows, frame.err = s.extender(frame.rows, stat)
 		}
 		if s.completed || s.aborted {
+			frame.shutdown = s.shutdown
+			frame.rmOnComplete = s.rmOnComplete
+			frame.noPop = s.noPop
 			// post increment makes sure OnComplete decorators are rendered
 			s.shutdown++
 		}
@@ -442,7 +432,6 @@ func (b *Bar) render(tw int) {
 	select {
 	case b.operateState <- fn:
 	case <-b.done:
-		done = true
 		fn(b.bs)
 	}
 }
@@ -459,12 +448,15 @@ func (b *Bar) triggerCompletion(s *bState) {
 }
 
 func (b *Bar) tryEarlyRefresh(renderReq chan<- time.Time) {
-	var anyOtherRunning bool
+	var otherRunning int
 	b.container.traverseBars(func(bar *Bar) bool {
-		anyOtherRunning = b != bar && bar.IsRunning()
-		return anyOtherRunning
+		if b != bar && bar.IsRunning() {
+			otherRunning++
+			return false // stop traverse
+		}
+		return true // continue traverse
 	})
-	if !anyOtherRunning {
+	if otherRunning == 0 {
 		for {
 			select {
 			case renderReq <- time.Now():
@@ -485,93 +477,65 @@ func (b *Bar) wSyncTable() syncTable {
 	}
 }
 
-func (s *bState) draw(stat decor.Statistics) (io.Reader, error) {
-	r, err := s.drawImpl(stat)
-	if err != nil {
-		for _, b := range s.buffers {
-			b.Reset()
-		}
-		return nil, err
-	}
-	return io.MultiReader(r, strings.NewReader("\n")), nil
-}
-
-func (s *bState) drawImpl(stat decor.Statistics) (io.Reader, error) {
-	decorFiller := func(buf *bytes.Buffer, decorators []decor.Decorator) (res struct {
-		width    int
-		truncate bool
-		err      error
-	}) {
-		res.width = stat.AvailableWidth
+func (s *bState) draw(stat decor.Statistics) (_ io.Reader, err error) {
+	decorFiller := func(buf *bytes.Buffer, decorators []decor.Decorator) (err error) {
 		for _, d := range decorators {
-			str := d.Decor(stat)
-			if stat.AvailableWidth > 0 {
-				stat.AvailableWidth -= runewidth.StringWidth(stripansi.Strip(str))
-				if res.err == nil {
-					_, res.err = buf.WriteString(str)
-				}
+			// need to call Decor in any case becase of width synchronization
+			str, width := d.Decor(stat)
+			if err != nil {
+				continue
+			}
+			if w := stat.AvailableWidth - width; w >= 0 {
+				_, err = buf.WriteString(str)
+				stat.AvailableWidth = w
+			} else if stat.AvailableWidth > 0 {
+				trunc := runewidth.Truncate(stripansi.Strip(str), stat.AvailableWidth, "…")
+				_, err = buf.WriteString(trunc)
+				stat.AvailableWidth = 0
 			}
 		}
-		res.truncate = stat.AvailableWidth < 0
-		return res
+		return err
 	}
 
-	bufP, bufB, bufA := s.buffers[0], s.buffers[1], s.buffers[2]
-
-	resP := decorFiller(bufP, s.pDecorators)
-	resA := decorFiller(bufA, s.aDecorators)
-
-	for _, err := range []error{resP.err, resA.err} {
+	for i, buf := range s.buffers[:2] {
+		err = decorFiller(buf, s.decorators[i])
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if resP.truncate {
-		trunc := strings.NewReader(runewidth.Truncate(stripansi.Strip(bufP.String()), resP.width, "…"))
-		bufP.Reset()
-		bufA.Reset()
-		return trunc, nil
+	spaces := []io.Reader{
+		strings.NewReader(" "),
+		strings.NewReader(" "),
 	}
-
-	if resA.truncate {
-		trunc := strings.NewReader(runewidth.Truncate(stripansi.Strip(bufA.String()), resA.width, "…"))
-		bufA.Reset()
-		return io.MultiReader(bufP, trunc), nil
-	}
-
-	if !s.trimSpace && stat.AvailableWidth >= 2 {
-		stat.AvailableWidth -= 2
-		writeFiller := func(buf *bytes.Buffer) error {
-			return s.filler.Fill(buf, stat)
-		}
-		for _, fn := range []func(*bytes.Buffer) error{
-			writeSpace,
-			writeFiller,
-			writeSpace,
-		} {
-			if err := fn(bufB); err != nil {
-				return nil, err
-			}
+	if s.trimSpace || stat.AvailableWidth < 2 {
+		for _, r := range spaces {
+			_, _ = io.Copy(io.Discard, r)
 		}
 	} else {
-		err := s.filler.Fill(bufB, stat)
-		if err != nil {
-			return nil, err
-		}
+		stat.AvailableWidth -= 2
 	}
 
-	return io.MultiReader(bufP, bufB, bufA), nil
+	err = s.filler.Fill(s.buffers[2], stat)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.MultiReader(
+		s.buffers[0],
+		spaces[0],
+		s.buffers[2],
+		spaces[1],
+		s.buffers[1],
+		strings.NewReader("\n"),
+	), nil
 }
 
 func (s *bState) wSyncTable() (table syncTable) {
 	var count int
 	var row []chan int
 
-	for i, decorators := range [][]decor.Decorator{
-		s.pDecorators,
-		s.aDecorators,
-	} {
+	for i, decorators := range s.decorators {
 		for _, d := range decorators {
 			if ch, ok := d.Sync(); ok {
 				row = append(row, ch)
@@ -657,8 +621,4 @@ func unwrap(d decor.Decorator) decor.Decorator {
 		return unwrap(d.Unwrap())
 	}
 	return d
-}
-
-func writeSpace(buf *bytes.Buffer) error {
-	return buf.WriteByte(' ')
 }
