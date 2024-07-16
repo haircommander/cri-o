@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -5,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -52,17 +54,6 @@ func WithStorageConfig(config storage.StoreOptions) RuntimeOption {
 		if config.GraphRoot != "" {
 			rt.storageConfig.GraphRoot = config.GraphRoot
 			rt.storageSet.GraphRootSet = true
-
-			// Also set libpod static dir, so we are a subdirectory
-			// of the c/storage store by default
-			rt.config.Engine.StaticDir = filepath.Join(config.GraphRoot, "libpod")
-			rt.storageSet.StaticDirSet = true
-
-			// Also set libpod volume path, so we are a subdirectory
-			// of the c/storage store by default
-			rt.config.Engine.VolumePath = filepath.Join(config.GraphRoot, "volumes")
-			rt.storageSet.VolumePathSet = true
-
 			setField = true
 		}
 
@@ -194,7 +185,7 @@ func WithConmonPath(path string) RuntimeOption {
 			return fmt.Errorf("must provide a valid path: %w", define.ErrInvalidArg)
 		}
 
-		rt.config.Engine.ConmonPath = []string{path}
+		rt.config.Engine.ConmonPath.Set([]string{path})
 
 		return nil
 	}
@@ -207,8 +198,7 @@ func WithConmonEnv(environment []string) RuntimeOption {
 			return define.ErrRuntimeFinalized
 		}
 
-		rt.config.Engine.ConmonEnvVars = make([]string, len(environment))
-		copy(rt.config.Engine.ConmonEnvVars, environment)
+		rt.config.Engine.ConmonEnvVars.Set(environment)
 
 		return nil
 	}
@@ -270,7 +260,6 @@ func WithStaticDir(dir string) RuntimeOption {
 		}
 
 		rt.config.Engine.StaticDir = dir
-		rt.config.Engine.StaticDirSet = true
 
 		return nil
 	}
@@ -318,7 +307,7 @@ func WithHooksDir(hooksDirs ...string) RuntimeOption {
 			}
 		}
 
-		rt.config.Engine.HooksDir = hooksDirs
+		rt.config.Engine.HooksDir.Set(hooksDirs)
 		return nil
 	}
 }
@@ -372,7 +361,6 @@ func WithTmpDir(dir string) RuntimeOption {
 			return define.ErrRuntimeFinalized
 		}
 		rt.config.Engine.TmpDir = dir
-		rt.config.Engine.TmpDirSet = true
 
 		return nil
 	}
@@ -421,7 +409,7 @@ func WithCNIPluginDir(dir string) RuntimeOption {
 			return define.ErrRuntimeFinalized
 		}
 
-		rt.config.Network.CNIPluginDirs = []string{dir}
+		rt.config.Network.CNIPluginDirs.Set([]string{dir})
 
 		return nil
 	}
@@ -457,7 +445,7 @@ func WithVolumePath(volPath string) RuntimeOption {
 		}
 
 		rt.config.Engine.VolumePath = volPath
-		rt.config.Engine.VolumePathSet = true
+		rt.storageSet.VolumePathSet = true
 
 		return nil
 	}
@@ -477,9 +465,10 @@ func WithDefaultInfraCommand(cmd string) RuntimeOption {
 	}
 }
 
-// WithReset instructs libpod to reset all storage to factory defaults.
-// All containers, pods, volumes, images, and networks will be removed.
-// All directories created by Libpod will be removed.
+// WithReset tells Libpod that the runtime will be used to perform a system
+// reset. A number of checks at initialization are relaxed as the runtime is
+// going to be used to remove all containers, pods, volumes, images, and
+// networks.
 func WithReset() RuntimeOption {
 	return func(rt *Runtime) error {
 		if rt.valid {
@@ -492,10 +481,8 @@ func WithReset() RuntimeOption {
 	}
 }
 
-// WithRenumber instructs libpod to perform a lock renumbering while
-// initializing. This will handle migrations from early versions of libpod with
-// file locks to newer versions with SHM locking, as well as changes in the
-// number of configured locks.
+// WithRenumber tells Libpod that the runtime will be used to perform a system
+// renumber. A number of checks on initialization related to locks are relaxed.
 func WithRenumber() RuntimeOption {
 	return func(rt *Runtime) error {
 		if rt.valid {
@@ -503,43 +490,6 @@ func WithRenumber() RuntimeOption {
 		}
 
 		rt.doRenumber = true
-
-		return nil
-	}
-}
-
-// WithMigrate instructs libpod to migrate container configurations to account
-// for changes between Engine versions. All running containers will be stopped
-// during a migration, then restarted after the migration is complete.
-func WithMigrate() RuntimeOption {
-	return func(rt *Runtime) error {
-		if rt.valid {
-			return define.ErrRuntimeFinalized
-		}
-
-		rt.doMigrate = true
-
-		return nil
-	}
-}
-
-// WithMigrateRuntime instructs Engine to change the default OCI runtime on all
-// containers during a migration. This is not used if `MigrateRuntime()` is not
-// also passed.
-// Engine makes no promises that your containers continue to work with the new
-// runtime - migrations between dissimilar runtimes may well break things.
-// Use with caution.
-func WithMigrateRuntime(requestedRuntime string) RuntimeOption {
-	return func(rt *Runtime) error {
-		if rt.valid {
-			return define.ErrRuntimeFinalized
-		}
-
-		if requestedRuntime == "" {
-			return fmt.Errorf("must provide a non-empty name for new runtime: %w", define.ErrInvalidArg)
-		}
-
-		rt.migrateRuntime = requestedRuntime
 
 		return nil
 	}
@@ -723,6 +673,19 @@ func WithPrivileged(privileged bool) CtrCreateOption {
 	}
 }
 
+// WithReadWriteTmpfs sets up read-write tmpfs flag in the container runtime.
+// Only Used if containers are run in ReadOnly mode.
+func WithReadWriteTmpfs(readWriteTmpfs bool) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+
+		ctr.config.ReadWriteTmpfs = readWriteTmpfs
+		return nil
+	}
+}
+
 // WithSecLabels sets the labels for SELinux.
 func WithSecLabels(labelOpts []string) CtrCreateOption {
 	return func(ctr *Container) error {
@@ -871,7 +834,6 @@ func WithTimeout(timeout uint) CtrCreateOption {
 		if ctr.valid {
 			return define.ErrCtrFinalized
 		}
-
 		ctr.config.Timeout = timeout
 
 		return nil

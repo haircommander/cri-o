@@ -145,9 +145,17 @@ const (
 	// of the init container.
 	InitContainerType = "io.podman.annotations.init.container.type"
 
+	// InfraNameAnnotation is used by generate and play kube when the infra container is set by the user during
+	// pod creation
+	InfraNameAnnotation = "io.podman.annotations.infra.name"
+
 	// UlimitAnnotation is used by kube play when playing a kube yaml to specify the ulimits
 	// of the container
 	UlimitAnnotation = "io.podman.annotations.ulimit"
+
+	// KubeHealthCheckAnnotation is used by kube play to tell podman that any health checks should follow
+	// the k8s behavior of waiting for the intialDelaySeconds to be over before updating the status
+	KubeHealthCheckAnnotation = "io.podman.annotations.kube.health.check"
 
 	// MaxKubeAnnotation is the max length of annotations allowed by Kubernetes.
 	MaxKubeAnnotation = 63
