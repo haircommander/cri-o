@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package libpod
 
 import (
@@ -5,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,21 +90,20 @@ type Runtime struct {
 	// This bool is just needed so that we can set it for netavark interface.
 	syslog bool
 
-	// doReset indicates that the runtime should perform a system reset.
-	// All Podman files will be removed.
+	// doReset indicates that the runtime will perform a system reset.
+	// A reset will remove all containers, pods, volumes, networks, etc.
+	// A number of validation checks are relaxed, or replaced with logic to
+	// remove as much of the runtime as possible if they fail. This ensures
+	// that even a broken Libpod can still be removed via `system reset`.
+	// This does not actually perform a `system reset`. That is done by
+	// calling "Reset()" on the returned runtime.
 	doReset bool
-
-	// doRenumber indicates that the runtime should perform a lock renumber
-	// during initialization.
-	// Once the runtime has been initialized and returned, this variable is
-	// unused.
+	// doRenumber indicates that the runtime will perform a system renumber.
+	// A renumber will reassign lock numbers for all containers, pods, etc.
+	// This will not perform the renumber itself, but will ignore some
+	// errors related to lock initialization so a renumber can be performed
+	// if something has gone wrong.
 	doRenumber bool
-
-	doMigrate bool
-	// System migrate can move containers to a new runtime.
-	// We make no promises that these migrated containers work on the new
-	// runtime, though.
-	migrateRuntime string
 
 	// valid indicates whether the runtime is ready to use.
 	// valid is set to true when a runtime is returned from GetRuntime(),
@@ -229,11 +232,6 @@ func newRuntimeFromConfig(conf *config.Config, options ...RuntimeOption) (*Runti
 
 	runtime.config.CheckCgroupsAndAdjustConfig()
 
-	// If resetting storage, do *not* return a runtime.
-	if runtime.doReset {
-		return nil, nil
-	}
-
 	return runtime, nil
 }
 
@@ -294,6 +292,48 @@ func getLockManager(runtime *Runtime) (lock.Manager, error) {
 	return manager, nil
 }
 
+func getDBState(runtime *Runtime) (State, error) {
+	// TODO - if we further break out the state implementation into
+	// libpod/state, the config could take care of the code below.  It
+	// would further allow to move the types and consts into a coherent
+	// package.
+	backend, err := config.ParseDBBackend(runtime.config.Engine.DBBackend)
+	if err != nil {
+		return nil, err
+	}
+
+	// get default boltdb path
+	baseDir := runtime.config.Engine.StaticDir
+	if runtime.storageConfig.TransientStore {
+		baseDir = runtime.config.Engine.TmpDir
+	}
+	boltDBPath := filepath.Join(baseDir, "bolt_state.db")
+
+	switch backend {
+	case config.DBBackendDefault:
+		// for backwards compatibility check if boltdb exists, if it does not we use sqlite
+		if _, err := os.Stat(boltDBPath); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				// need to set DBBackend string so podman info will show the backend name correctly
+				runtime.config.Engine.DBBackend = config.DBBackendSQLite.String()
+				return NewSqliteState(runtime)
+			}
+			// Return error here some other problem with the boltdb file, rather than silently
+			// switch to sqlite which would be hard to debug for the user return the error back
+			// as this likely a real bug.
+			return nil, err
+		}
+		runtime.config.Engine.DBBackend = config.DBBackendBoltDB.String()
+		fallthrough
+	case config.DBBackendBoltDB:
+		return NewBoltState(boltDBPath, runtime)
+	case config.DBBackendSQLite:
+		return NewSqliteState(runtime)
+	default:
+		return nil, fmt.Errorf("unrecognized database backend passed (%q): %w", backend.String(), define.ErrInvalidArg)
+	}
+}
+
 // Make a new runtime based on the given configuration
 // Sets up containers/storage, state store, OCI runtime
 func makeRuntime(runtime *Runtime) (retErr error) {
@@ -311,11 +351,21 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 		return fmt.Errorf("cannot perform system reset while renumbering locks: %w", define.ErrInvalidArg)
 	}
 
+	if runtime.config.Engine.StaticDir == "" {
+		runtime.config.Engine.StaticDir = filepath.Join(runtime.storageConfig.GraphRoot, "libpod")
+		runtime.storageSet.StaticDirSet = true
+	}
+
+	if runtime.config.Engine.VolumePath == "" {
+		runtime.config.Engine.VolumePath = filepath.Join(runtime.storageConfig.GraphRoot, "volumes")
+		runtime.storageSet.VolumePathSet = true
+	}
+
 	// Make the static files directory if it does not exist
 	if err := os.MkdirAll(runtime.config.Engine.StaticDir, 0700); err != nil {
 		// The directory is allowed to exist
 		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("creating runtime static files directory: %w", err)
+			return fmt.Errorf("creating runtime static files directory %q: %w", runtime.config.Engine.StaticDir, err)
 		}
 	}
 
@@ -325,39 +375,9 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	}
 
 	// Set up the state.
-	//
-	// TODO: We probably need a "default" type that will select BoltDB if
-	// a DB exists already, and SQLite otherwise.
-	//
-	// TODO - if we further break out the state implementation into
-	// libpod/state, the config could take care of the code below.  It
-	// would further allow to move the types and consts into a coherent
-	// package.
-	backend, err := config.ParseDBBackend(runtime.config.Engine.DBBackend)
+	runtime.state, err = getDBState(runtime)
 	if err != nil {
 		return err
-	}
-	switch backend {
-	case config.DBBackendBoltDB:
-		baseDir := runtime.config.Engine.StaticDir
-		if runtime.storageConfig.TransientStore {
-			baseDir = runtime.config.Engine.TmpDir
-		}
-		dbPath := filepath.Join(baseDir, "bolt_state.db")
-
-		state, err := NewBoltState(dbPath, runtime)
-		if err != nil {
-			return err
-		}
-		runtime.state = state
-	case config.DBBackendSQLite:
-		state, err := NewSqliteState(runtime)
-		if err != nil {
-			return err
-		}
-		runtime.state = state
-	default:
-		return fmt.Errorf("unrecognized state type passed (%v): %w", runtime.config.Engine.StateType, define.ErrInvalidArg)
 	}
 
 	// Grab config from the database so we can reset some defaults
@@ -537,9 +557,8 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	// We now need to see if the system has restarted
 	// We check for the presence of a file in our tmp directory to verify this
 	// This check must be locked to prevent races
-	runtimeAliveLock := filepath.Join(runtime.config.Engine.TmpDir, "alive.lck")
 	runtimeAliveFile := filepath.Join(runtime.config.Engine.TmpDir, "alive")
-	aliveLock, err := lockfile.GetLockFile(runtimeAliveLock)
+	aliveLock, err := runtime.getRuntimeAliveLock()
 	if err != nil {
 		return fmt.Errorf("acquiring runtime init lock: %w", err)
 	}
@@ -613,27 +632,6 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 		return err
 	}
 
-	// If we're resetting storage, do it now.
-	// We will not return a valid runtime.
-	// TODO: Plumb this context out so it can be set.
-	if runtime.doReset {
-		// Mark the runtime as valid, so normal functionality "mostly"
-		// works and we can use regular functions to remove
-		// ctrs/pods/etc
-		runtime.valid = true
-
-		return runtime.reset(context.Background())
-	}
-
-	// If we're renumbering locks, do it now.
-	// It breaks out of normal runtime init, and will not return a valid
-	// runtime.
-	if runtime.doRenumber {
-		if err := runtime.renumberLocks(); err != nil {
-			return err
-		}
-	}
-
 	// If we need to refresh the state, do it now - things are guaranteed to
 	// be set up by now.
 	if doRefresh {
@@ -654,12 +652,6 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	// Mark the runtime as valid - ready to be used, cannot be modified
 	// further
 	runtime.valid = true
-
-	if runtime.doMigrate {
-		if err := runtime.migrate(); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
@@ -1167,6 +1159,11 @@ func (r *Runtime) graphRootMountedFlag(mounts []spec.Mount) string {
 		}
 	}
 	return ""
+}
+
+// Returns a copy of the runtime alive lock
+func (r *Runtime) getRuntimeAliveLock() (*lockfile.LockFile, error) {
+	return lockfile.GetLockFile(filepath.Join(r.config.Engine.TmpDir, "alive.lck"))
 }
 
 // Network returns the network interface which is used by the runtime

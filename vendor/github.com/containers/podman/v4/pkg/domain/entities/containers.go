@@ -164,6 +164,7 @@ type ContainerStatReport struct {
 type CommitOptions struct {
 	Author         string
 	Changes        []string
+	Config         []byte
 	Format         string
 	ImageName      string
 	IncludeVolumes bool
@@ -472,6 +473,8 @@ type ContainerCpOptions struct {
 // ContainerStatsOptions describes input options for getting
 // stats on containers
 type ContainerStatsOptions struct {
+	// Get all containers stats
+	All bool
 	// Operate on the latest known container.  Only supported for local
 	// clients.
 	Latest bool
