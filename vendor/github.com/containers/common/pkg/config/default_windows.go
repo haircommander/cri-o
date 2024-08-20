@@ -1,17 +1,13 @@
 package config
 
-import "os"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
-// getDefaultImage returns the default machine image stream
-// On Windows this refers to the Fedora major release number
-func getDefaultMachineImage() string {
-	return "35"
-}
-
-// getDefaultMachineUser returns the user to use for rootless podman
-func getDefaultMachineUser() string {
-	return "user"
-}
+	"github.com/containers/storage/pkg/homedir"
+)
 
 // isCgroup2UnifiedMode returns whether we are running in cgroup2 mode.
 func isCgroup2UnifiedMode() (isUnified bool, isUnifiedErr error) {
@@ -47,5 +43,13 @@ func getLibpodTmpDir() string {
 
 // getDefaultMachineVolumes returns default mounted volumes (possibly with env vars, which will be expanded)
 func getDefaultMachineVolumes() []string {
-	return []string{}
+	hd := homedir.Get()
+	vol := filepath.VolumeName(hd)
+	hostMnt := filepath.ToSlash(strings.TrimPrefix(hd, vol))
+	return []string{fmt.Sprintf("%s:%s", hd, hostMnt)}
+}
+
+func getDefaultComposeProviders() []string {
+	// Rely on os.LookPath to do the trick on Windows.
+	return []string{"docker-compose", "podman-compose"}
 }

@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package cgroups
 
@@ -34,7 +33,6 @@ func (c *linuxBlkioHandler) Apply(ctr *CgroupControl, res *configs.Resources) er
 			return err
 		}
 		return man.Set(res)
-
 	}
 	path := filepath.Join(cgroupRoot, Blkio, ctr.config.Path)
 	return c.Blkio.Set(path, res)
