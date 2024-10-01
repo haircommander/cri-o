@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/containers/common/pkg/umask"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/idtools"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
@@ -182,7 +184,7 @@ func MountsWithUIDGID(mountLabel, containerRunDir, mountFile, mountPoint string,
 		mountFiles = append(mountFiles, mountFile)
 	}
 	for _, file := range mountFiles {
-		if _, err := os.Stat(file); err == nil {
+		if err := fileutils.Exists(file); err == nil {
 			mounts, err := addSubscriptionsFromMountsFile(file, mountLabel, containerRunDir, uid, gid)
 			if err != nil {
 				logrus.Warnf("Failed to mount subscriptions, skipping entry in %s: %v", file, err)
@@ -197,7 +199,7 @@ func MountsWithUIDGID(mountLabel, containerRunDir, mountFile, mountPoint string,
 		return subscriptionMounts
 	}
 	// Add FIPS mode subscription if /etc/system-fips exists on the host
-	_, err := os.Stat("/etc/system-fips")
+	err := fileutils.Exists("/etc/system-fips")
 	switch {
 	case err == nil:
 		if err := addFIPSModeSubscription(&subscriptionMounts, containerRunDir, mountPoint, mountLabel, uid, gid); err != nil {
@@ -212,7 +214,7 @@ func MountsWithUIDGID(mountLabel, containerRunDir, mountFile, mountPoint string,
 }
 
 func rchown(chowndir string, uid, gid int) error {
-	return filepath.Walk(chowndir, func(filePath string, f os.FileInfo, err error) error {
+	return filepath.Walk(chowndir, func(filePath string, _ os.FileInfo, err error) error {
 		return os.Lchown(filePath, uid, gid)
 	})
 }
@@ -231,7 +233,7 @@ func addSubscriptionsFromMountsFile(filePath, mountLabel, containerRunDir string
 		fileInfo, err := os.Stat(hostDirOrFile)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				logrus.Warnf("Path %q from %q doesn't exist, skipping", hostDirOrFile, filePath)
+				logrus.Infof("Path %q from %q doesn't exist, skipping", hostDirOrFile, filePath)
 				continue
 			}
 			return nil, err
@@ -240,9 +242,8 @@ func addSubscriptionsFromMountsFile(filePath, mountLabel, containerRunDir string
 		ctrDirOrFileOnHost := filepath.Join(containerRunDir, ctrDirOrFile)
 
 		// In the event of a restart, don't want to copy subscriptions over again as they already would exist in ctrDirOrFileOnHost
-		_, err = os.Stat(ctrDirOrFileOnHost)
+		err = fileutils.Exists(ctrDirOrFileOnHost)
 		if errors.Is(err, os.ErrNotExist) {
-
 			hostDirOrFile, err = resolveSymbolicLink(hostDirOrFile)
 			if err != nil {
 				return nil, err
@@ -316,7 +317,7 @@ func addSubscriptionsFromMountsFile(filePath, mountLabel, containerRunDir string
 func addFIPSModeSubscription(mounts *[]rspec.Mount, containerRunDir, mountPoint, mountLabel string, uid, gid int) error {
 	subscriptionsDir := "/run/secrets"
 	ctrDirOnHost := filepath.Join(containerRunDir, subscriptionsDir)
-	if _, err := os.Stat(ctrDirOnHost); errors.Is(err, os.ErrNotExist) {
+	if err := fileutils.Exists(ctrDirOnHost); errors.Is(err, os.ErrNotExist) {
 		if err = idtools.MkdirAllAs(ctrDirOnHost, 0o755, uid, gid); err != nil { //nolint
 			return err
 		}
@@ -326,7 +327,7 @@ func addFIPSModeSubscription(mounts *[]rspec.Mount, containerRunDir, mountPoint,
 	}
 	fipsFile := filepath.Join(ctrDirOnHost, "system-fips")
 	// In the event of restart, it is possible for the FIPS mode file to already exist
-	if _, err := os.Stat(fipsFile); errors.Is(err, os.ErrNotExist) {
+	if err := fileutils.Exists(fipsFile); errors.Is(err, os.ErrNotExist) {
 		file, err := os.Create(fipsFile)
 		if err != nil {
 			return fmt.Errorf("creating system-fips file in container for FIPS mode: %w", err)
@@ -346,8 +347,11 @@ func addFIPSModeSubscription(mounts *[]rspec.Mount, containerRunDir, mountPoint,
 
 	srcBackendDir := "/usr/share/crypto-policies/back-ends/FIPS"
 	destDir := "/etc/crypto-policies/back-ends"
-	srcOnHost := filepath.Join(mountPoint, srcBackendDir)
-	if _, err := os.Stat(srcOnHost); err != nil {
+	srcOnHost, err := securejoin.SecureJoin(mountPoint, srcBackendDir)
+	if err != nil {
+		return fmt.Errorf("resolve %s in the container: %w", srcBackendDir, err)
+	}
+	if err := fileutils.Exists(srcOnHost); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
@@ -358,6 +362,35 @@ func addFIPSModeSubscription(mounts *[]rspec.Mount, containerRunDir, mountPoint,
 		m := rspec.Mount{
 			Source:      srcOnHost,
 			Destination: destDir,
+			Type:        "bind",
+			Options:     []string{"bind", "rprivate"},
+		}
+		*mounts = append(*mounts, m)
+	}
+
+	// Make sure we set the config to FIPS so that the container does not overwrite
+	// /etc/crypto-policies/back-ends when crypto-policies-scripts is reinstalled.
+	cryptoPoliciesConfigFile := filepath.Join(containerRunDir, "fips-config")
+	file, err := os.Create(cryptoPoliciesConfigFile)
+	if err != nil {
+		return fmt.Errorf("creating fips config file in container for FIPS mode: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.WriteString("FIPS\n"); err != nil {
+		return fmt.Errorf("writing fips config file in container for FIPS mode: %w", err)
+	}
+	if err = label.Relabel(cryptoPoliciesConfigFile, mountLabel, false); err != nil {
+		return fmt.Errorf("applying correct labels on fips-config file: %w", err)
+	}
+	if err := file.Chown(uid, gid); err != nil {
+		return fmt.Errorf("chown fips-config file: %w", err)
+	}
+
+	policyConfig := "/etc/crypto-policies/config"
+	if !mountExists(*mounts, policyConfig) {
+		m := rspec.Mount{
+			Source:      cryptoPoliciesConfigFile,
+			Destination: policyConfig,
 			Type:        "bind",
 			Options:     []string{"bind", "rprivate"},
 		}
