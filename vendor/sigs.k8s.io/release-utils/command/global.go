@@ -24,16 +24,16 @@ import (
 // level. It should never be used directly to avoid data races.
 var atomicInt int32
 
-// SetGlobalVerbose sets the global command verbosity to the specified value
+// SetGlobalVerbose sets the global command verbosity to the specified value.
 func SetGlobalVerbose(to bool) {
-	var i int32 = 0
+	var i int32
 	if to {
 		i = 1
 	}
 	atomic.StoreInt32(&atomicInt, i)
 }
 
-// GetGlobalVerbose returns the globally set command verbosity
+// GetGlobalVerbose returns the globally set command verbosity.
 func GetGlobalVerbose() bool {
 	return atomic.LoadInt32(&atomicInt) != 0
 }
