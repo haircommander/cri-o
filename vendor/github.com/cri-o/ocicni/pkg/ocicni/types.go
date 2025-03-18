@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	// DefaultInterfaceName is the string to be used for the interface name inside the net namespace
+	// DefaultInterfaceName is the string to be used for the interface name inside the net namespace.
 	DefaultInterfaceName = "eth0"
-	// CNIPluginName is the default name of the plugin
+	// CNIPluginName is the default name of the plugin.
 	CNIPluginName = "cni"
 )
 
@@ -28,6 +28,8 @@ type PortMapping struct {
 
 // IpRange maps to the standard CNI ipRanges Capability
 // see: https://github.com/containernetworking/cni/blob/master/CONVENTIONS.md
+//
+//nolint:stylecheck // already define API
 type IpRange struct {
 	// Subnet is the whole CIDR
 	Subnet string `json:"subnet"`
@@ -54,10 +56,13 @@ type RuntimeConfig struct {
 	// Bandwidth is the bandwidth limiting of the pod
 	Bandwidth *BandwidthConfig
 	// IpRanges is the ip range gather which is used for address allocation
+	//nolint:stylecheck // already define API
 	IpRanges [][]IpRange
 	// CgroupPath is the path to the pod's cgroup
 	// e.g. "/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod28ce45bc_63f8_48a3_a99b_cfb9e63c856c.slice"
 	CgroupPath string
+	// PodAnnotations are the annotations of the pod.
+	PodAnnotations *map[string]string `json:"io.kubernetes.cri.pod-annotations,omitempty"`
 }
 
 // BandwidthConfig maps to the standard CNI bandwidth Capability
@@ -97,11 +102,11 @@ type PodNetwork struct {
 
 	// Aliases are network-scoped names for resolving a container
 	// by name. The key value is the network name and the value is
-	// is a string slice of aliases
+	// a string slice of aliases
 	Aliases map[string][]string
 }
 
-// NetAttachment describes a container network attachment
+// NetAttachment describes a container network attachment.
 type NetAttachment struct {
 	// NetName contains the name of the CNI network to which the container
 	// should be or is attached
@@ -110,7 +115,7 @@ type NetAttachment struct {
 	Ifname string
 }
 
-// NetResult contains the result the network attachment operation
+// NetResult contains the result the network attachment operation.
 type NetResult struct {
 	// Result is the CNI Result
 	Result types.Result
@@ -119,7 +124,9 @@ type NetResult struct {
 	NetAttachment
 }
 
-// CNIPlugin is the interface that needs to be implemented by a plugin
+// CNIPlugin is the interface that needs to be implemented by a plugin.
+//
+//nolint:interfacebloat // existing API
 type CNIPlugin interface {
 	// Name returns the plugin's name. This will be used when searching
 	// for a plugin by name, e.g.
@@ -149,8 +156,13 @@ type CNIPlugin interface {
 	// GetPodNetworkStatusWithContext is the same as GetPodNetworkStatus but takes a context
 	GetPodNetworkStatusWithContext(ctx context.Context, network PodNetwork) ([]NetResult, error)
 
+	// GC cleans up any resources concerned with stale pods
+	GC(ctx context.Context, validPods []*PodNetwork) error
+
 	// NetworkStatus returns error if the network plugin is in error state
 	Status() error
+
+	StatusWithContext(ctx context.Context) error
 
 	// Shutdown terminates all driver operations
 	Shutdown() error
