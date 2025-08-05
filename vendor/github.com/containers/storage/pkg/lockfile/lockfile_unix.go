@@ -1,5 +1,4 @@
-//go:build linux || solaris || darwin || freebsd
-// +build linux solaris darwin freebsd
+//go:build !windows
 
 package lockfile
 
@@ -9,8 +8,6 @@ import (
 	"github.com/containers/storage/pkg/system"
 	"golang.org/x/sys/unix"
 )
-
-type fileHandle uintptr
 
 // GetLastWrite returns a LastWrite value corresponding to current state of the lock.
 // This is typically called before (_not after_) loading the state when initializing a consumer
@@ -66,30 +63,4 @@ func (l *LockFile) TouchedSince(when time.Time) bool {
 	mtim := st.Mtim()
 	touched := time.Unix(mtim.Unix())
 	return when.Before(touched)
-}
-
-func openHandle(path string, mode int) (fileHandle, error) {
-	mode |= unix.O_CLOEXEC
-	fd, err := unix.Open(path, mode, 0o644)
-	return fileHandle(fd), err
-}
-
-func lockHandle(fd fileHandle, lType lockType) {
-	fType := unix.F_RDLCK
-	if lType != readLock {
-		fType = unix.F_WRLCK
-	}
-	lk := unix.Flock_t{
-		Type:   int16(fType),
-		Whence: int16(unix.SEEK_SET),
-		Start:  0,
-		Len:    0,
-	}
-	for unix.FcntlFlock(uintptr(fd), unix.F_SETLKW, &lk) != nil {
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func unlockAndCloseHandle(fd fileHandle) {
-	unix.Close(int(fd))
 }
