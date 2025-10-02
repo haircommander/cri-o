@@ -1,4 +1,4 @@
-go 1.21
+go 1.23
 
 module github.com/cri-o/cri-o
 
@@ -72,7 +72,7 @@ require (
 	golang.org/x/sync v0.3.0
 	golang.org/x/sys v0.13.0
 	google.golang.org/grpc v1.58.3
-	google.golang.org/protobuf v1.31.0
+	google.golang.org/protobuf v1.36.10
 	k8s.io/api v0.29.0-alpha.2
 	k8s.io/apimachinery v0.29.0-alpha.2
 	k8s.io/client-go v0.29.0-alpha.2
@@ -142,7 +142,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.15.2 // indirect
 	github.com/google/go-github/v53 v53.2.0 // indirect
 	github.com/google/go-intervals v0.0.2 // indirect
