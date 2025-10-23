@@ -67,6 +67,7 @@ type HugetlbStats struct {
 type PidsStats struct {
 	Current uint64
 	Limit   uint64
+	Pids    []int
 }
 
 // MemLimitGivenSystem limit returns the memory limit for a given cgroup
@@ -125,6 +126,11 @@ func statsFromLibctrMgr(cgMgr cgroups.Manager) (*CgroupStats, error) {
 		return nil, err
 	}
 
+	pids, err := cgMgr.GetPids()
+	if err != nil {
+		return nil, err
+	}
+
 	return &CgroupStats{
 		Memory:  cgroupMemStats(&stats.MemoryStats),
 		CPU:     cgroupCPUStats(&stats.CpuStats),
@@ -132,6 +138,7 @@ func statsFromLibctrMgr(cgMgr cgroups.Manager) (*CgroupStats, error) {
 		Pid: &PidsStats{
 			Current: stats.PidsStats.Current,
 			Limit:   stats.PidsStats.Limit,
+			Pids:    pids,
 		},
 		SystemNano: time.Now().UnixNano(),
 	}, nil
