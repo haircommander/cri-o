@@ -119,7 +119,12 @@ func libctrManager(cgroup, parent string, systemd bool) (cgroups.Manager, error)
 	return manager.New(cg)
 }
 
-func libctrStatsToCgroupStats(stats *cgroups.Stats) *CgroupStats {
+func statsFromLibctrMgr(cgMgr cgroups.Manager) (*CgroupStats, error) {
+	stats, err := cgMgr.GetStats()
+	if err != nil {
+		return nil, err
+	}
+
 	return &CgroupStats{
 		Memory:  cgroupMemStats(&stats.MemoryStats),
 		CPU:     cgroupCPUStats(&stats.CpuStats),
@@ -129,7 +134,7 @@ func libctrStatsToCgroupStats(stats *cgroups.Stats) *CgroupStats {
 			Limit:   stats.PidsStats.Limit,
 		},
 		SystemNano: time.Now().UnixNano(),
-	}
+	}, nil
 }
 
 func cgroupMemStats(memStats *cgroups.MemoryStats) *MemoryStats {
