@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/containers/storage/pkg/unshare"
+	"github.com/google/cadvisor/utils/cpuload"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/manager"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
@@ -26,8 +27,9 @@ type CgroupfsManager struct {
 	// and we don't need to cache it
 	v1CtrCgMgr map[string]cgroups.Manager
 	// a map of sandbox ID to cgroup manager for cgroup v1
-	v1SbCgMgr map[string]cgroups.Manager
-	mutex     sync.Mutex
+	v1SbCgMgr     map[string]cgroups.Manager
+	mutex         sync.Mutex
+	cpuLoadReader cpuload.CpuLoadReader
 }
 
 const (
@@ -265,4 +267,19 @@ func (m *CgroupfsManager) RemoveSandboxCgroup(sbParent, containerID string) erro
 	// and the cgroup isn't created as a relative path to the cgroups of the CRI-O process.
 	// https://github.com/opencontainers/runc/blob/fd5debf3aa/libcontainer/cgroups/fs/paths.go#L156
 	return removeSandboxCgroup(filepath.Join("/", sbParent), containerCgroupPath(containerID))
+}
+
+func (m *CgroupfsManager) AttachCpuLoadReader() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if m.cpuLoadReader != nil {
+		return nil
+	}
+
+	var err error
+
+	m.cpuLoadReader, err = cpuload.New()
+
+	return err
 }

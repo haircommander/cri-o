@@ -1133,6 +1133,10 @@ func (c *Config) Validate(onExecution bool) error {
 		return fmt.Errorf("validating NRI config: %w", err)
 	}
 
+	if err := c.StatsConfig.Validate(onExecution, c.CgroupManager()); err != nil {
+		return fmt.Errorf("validating stats config: %w", err)
+	}
+
 	return nil
 }
 
@@ -2146,4 +2150,16 @@ func (c *NetworkConfig) CNIManagerShutdown() {
 // SetSingleConfigPath set single config path for config.
 func (c *Config) SetSingleConfigPath(singleConfigPath string) {
 	c.singleConfigPath = singleConfigPath
+}
+
+func (c *StatsConfig) Validate(onExecution bool, mgr cgmgr.CgroupManager) error {
+	if !onExecution {
+		return nil
+	}
+
+	if slices.Contains(c.IncludedPodMetrics, "cpuLoad") {
+		return mgr.AttachCpuLoadReader()
+	}
+
+	return nil
 }

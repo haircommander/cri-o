@@ -12,6 +12,7 @@ import (
 	"github.com/containers/storage/pkg/unshare"
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
+	"github.com/google/cadvisor/utils/cpuload"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/systemd"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
@@ -34,9 +35,10 @@ type SystemdManager struct {
 	// therefore, we don't need to cache it
 	v1CtrCgMgr map[string]cgroups.Manager
 	// a map of sandbox ID to cgroup manager for cgroup v1
-	v1SbCgMgr map[string]cgroups.Manager
-	dbusMgr   *dbusmgr.DbusConnManager
-	mutex     sync.Mutex
+	v1SbCgMgr     map[string]cgroups.Manager
+	dbusMgr       *dbusmgr.DbusConnManager
+	mutex         sync.Mutex
+	cpuLoadReader cpuload.CpuLoadReader
 }
 
 func NewSystemdManager() *SystemdManager {
@@ -364,4 +366,19 @@ func (m *SystemdManager) RemoveSandboxCgroup(sbParent, containerID string) error
 	}
 
 	return removeSandboxCgroup(expandedParent, containerCgroupPath(containerID))
+}
+
+func (m *SystemdManager) AttachCpuLoadReader() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if m.cpuLoadReader != nil {
+		return nil
+	}
+
+	var err error
+
+	m.cpuLoadReader, err = cpuload.New()
+
+	return err
 }

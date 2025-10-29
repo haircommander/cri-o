@@ -84,6 +84,9 @@ type CgroupManager interface {
 	// It creates a new cgroup for that sandbox if it does not already exist.
 	// It returns the cgroup stats for that sandbox.
 	SandboxCgroupStats(sbParent, sbID string) (*CgroupStats, error)
+	// AttachCpuLoadReader tells this cgroup manager to create a CpuLoadReader
+	// for gathering cpu load stats.
+	AttachCpuLoadReader() error
 }
 
 // New creates a new CgroupManager with defaults.
