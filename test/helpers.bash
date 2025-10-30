@@ -27,12 +27,12 @@ function setup_test() {
         ;;
     esac
 
-    if [ -e /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-        # shellcheck disable=SC1091
-        . /etc/selinux/config
-        filelabel=$(awk -F'"' '/^file.*=.*/ {print $2}' "/etc/selinux/${SELINUXTYPE}/contexts/lxc_contexts")
-        chcon -R "$filelabel" "$TESTDIR"
-    fi
+#    if [ -e /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
+#        # shellcheck disable=SC1091
+#        . /etc/selinux/config
+#        filelabel=$(awk -F'"' '/^file.*=.*/ {print $2}' "/etc/selinux/${SELINUXTYPE}/contexts/lxc_contexts")
+#        chcon -R "$filelabel" "$TESTDIR"
+#    fi
     CRIO_SOCKET="$TESTDIR/crio.sock"
     CRIO_CONFIG_DIR="$TESTDIR/crio.conf.d"
     mkdir "$CRIO_CONFIG_DIR"

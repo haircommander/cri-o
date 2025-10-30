@@ -3,6 +3,7 @@
 package cgmgr
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/cri-o/cri-o/internal/config/node"
 	"github.com/cri-o/cri-o/internal/dbusmgr"
+	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/utils"
 )
 
@@ -143,7 +145,10 @@ func (m *SystemdManager) ContainerCgroupStats(sbParent, containerID string) (*Cg
 	cgStats := libctrStatsToCgroupStats(stats)
 
 	if m.cpuLoadReader != nil {
-		addCpuLoadStats(cgStats, m.cpuLoadReader, containerID, cgMgr.Path("cpu"))
+		log.Debugf(context.Background(), "Adding CpuLoadStats")
+		if err := addCpuLoadStats(cgStats, m.cpuLoadReader, containerID, cgMgr.Path("cpu")); err != nil {
+			log.Errorf(context.Background(), "%+v", err)
+		}
 	}
 
 	return cgStats, nil

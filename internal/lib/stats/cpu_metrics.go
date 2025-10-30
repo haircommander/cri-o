@@ -105,6 +105,9 @@ func generateContainerCPULoadMetrics(ctr *oci.Container, cpu *cgmgr.CPUStats, lo
 		{
 			desc: containerTasksState,
 			valueFunc: func() metricValues {
+				if load == nil {
+					return metricValues{}
+				}
 				return metricValues{{
 					value:      load.NrSleeping,
 					metricType: types.MetricType_GAUGE,

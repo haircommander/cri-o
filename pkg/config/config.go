@@ -2160,6 +2160,7 @@ func (c *StatsConfig) Validate(onExecution bool, mgr cgmgr.CgroupManager) error 
 	// Keep "cpuLoad" in sync with metric name CpuLoadMetrics in internal/lib/stats/metrics.go
 	// to avoid cyclical dependency
 	if slices.Contains(c.IncludedPodMetrics, "cpuLoad") {
+		log.Infof(context.Background(), "Attaching CPULoadReader")
 		return mgr.AttachCpuLoadReader()
 	}
 

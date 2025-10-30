@@ -317,3 +317,26 @@ EOF
 		[[ $metrics_memory_reservation_limit_bytes == "134217728" ]]
 	fi
 }
+
+@test "container cpu load metrics" {
+	CONTAINER_ENABLE_METRICS="true" CONTAINER_METRICS_PORT=$(free_port) setup_crio
+	cat << EOF > "$CRIO_CONFIG"
+[crio.stats]
+collection_period = 0
+included_pod_metrics = [
+    "network",
+    "memory",
+    "cpuLoad",
+]
+EOF
+	start_crio_no_setup
+	check_images
+
+	metrics_setup
+	set_container_pod_cgroup_root "" "$CONTAINER_ID"
+
+	metrics=$(crictl metricsp | jq '.podMetrics[0].containerMetrics[0].metrics[]')
+	echo $metrics >&3
+	metrics_cpu_load_average=$(echo "$metrics" | jq 'select(.name == "container_cpu_load_average_10s") | .value.value | tonumber')
+	[[ "$metrics_cpu_load_average" != 0 ]]
+}
