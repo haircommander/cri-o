@@ -81,3 +81,53 @@ func generateContainerCPUMetrics(ctr *oci.Container, cpu *cgmgr.CPUStats) []*typ
 
 	return computeContainerMetrics(ctr, cpuMetrics, "cpu")
 }
+
+func generateContainerCPULoadMetrics(ctr *oci.Container, cpu *cgmgr.CPUStats, load *cgmgr.CPULoadStats) []*types.Metric {
+	cpuLoadMetrics := []*containerMetric{
+		{
+			desc: containerCpuLoadAverage10s,
+			valueFunc: func() metricValues {
+				return metricValues{{
+					value:      cpu.LoadAverage,
+					metricType: types.MetricType_GAUGE,
+				}}
+			},
+		},
+		{
+			desc: containerCpuLoadDAverage10s,
+			valueFunc: func() metricValues {
+				return metricValues{{
+					value:      cpu.LoadDAverage,
+					metricType: types.MetricType_GAUGE,
+				}}
+			},
+		},
+		{
+			desc: containerTasksState,
+			valueFunc: func() metricValues {
+				return metricValues{{
+					value:      load.NrSleeping,
+					metricType: types.MetricType_GAUGE,
+					labels:     []string{"sleeping"},
+				}, {
+					value:      load.NrRunning,
+					metricType: types.MetricType_GAUGE,
+					labels:     []string{"running"},
+				}, {
+					value:      load.NrStopped,
+					metricType: types.MetricType_GAUGE,
+					labels:     []string{"stopped"},
+				}, {
+					value:      load.NrUninterruptible,
+					metricType: types.MetricType_GAUGE,
+					labels:     []string{"uninterruptible"},
+				}, {
+					value:      load.NrIoWait,
+					metricType: types.MetricType_GAUGE,
+					labels:     []string{"iowaiting"},
+				}}
+			},
+		},
+	}
+	return computeContainerMetrics(ctr, cpuLoadMetrics, "cpuLoad")
+}

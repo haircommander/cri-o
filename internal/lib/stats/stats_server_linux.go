@@ -286,6 +286,10 @@ func (ss *StatsServer) containerMetricsFromCgStats(sb *sandbox.Sandbox, c *oci.C
 			if specMetrics := generateContainerSpecMetrics(c); specMetrics != nil {
 				metrics = append(metrics, specMetrics...)
 			}
+		case CpuLoadMetrics:
+			if cpuLoadMetrics := generateContainerCPULoadMetrics(c, cgstats.CPU, cgstats.CPULoad); cpuLoadMetrics != nil {
+				metrics = append(metrics, cpuLoadMetrics...)
+			}
 		default:
 			log.Warnf(ss.ctx, "Unknown metric: %s", m)
 		}

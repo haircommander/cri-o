@@ -210,3 +210,22 @@ var (
 		LabelKeys: baseLabelKeys,
 	}
 )
+
+// CpuLoad metrics.
+var (
+	containerCpuLoadAverage10s = &types.MetricDescriptor{
+		Name:      "container_cpu_load_average_10s",
+		Help:      "Value of container cpu load average over the last 10 seconds.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerCpuLoadDAverage10s = &types.MetricDescriptor{
+		Name:      "container_cpu_load_d_average_10s",
+		Help:      "Value of container cpu load.d average over the last 10 seconds.",
+		LabelKeys: baseLabelKeys,
+	}
+	containerTasksState = &types.MetricDescriptor{
+		Name:      "container_tasks_state",
+		Help:      "Number of tasks in given state",
+		LabelKeys: append(baseLabelKeys, "state"),
+	}
+)

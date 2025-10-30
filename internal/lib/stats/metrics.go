@@ -19,6 +19,7 @@ const (
 	OOMMetrics     = "oom"
 	ProcessMetrics = "process"
 	SpecMetrics    = "spec"
+	CpuLoadMetrics = "cpuLoad"
 )
 
 type metricValue struct {
@@ -105,6 +106,11 @@ func (ss *StatsServer) PopulateMetricDescriptors(includedKeys []string) map[stri
 			containerSpecMemoryLimitBytes,
 			containerSpecMemoryReservationLimitBytes,
 			containerSpecMemorySwapLimitBytes,
+		},
+		CpuLoadMetrics: {
+			containerCpuLoadAverage10s,
+			containerCpuLoadDAverage10s,
+			containerTasksState,
 		},
 	}
 
