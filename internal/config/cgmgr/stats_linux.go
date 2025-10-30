@@ -6,6 +6,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/cadvisor/utils/cpuload"
 	"github.com/opencontainers/cgroups"
 	"github.com/opencontainers/cgroups/manager"
 
@@ -21,6 +22,7 @@ type CgroupStats struct {
 	CPU        *CPUStats
 	Hugetlb    map[string]HugetlbStats
 	Pid        *PidsStats
+	CPULoad    *CPULoadStats
 	SystemNano int64
 }
 
@@ -57,6 +59,28 @@ type CPUStats struct {
 	ThrottledPeriods uint64
 	// Aggregate time the container was throttled for in nanoseconds.
 	ThrottledTime uint64
+
+	// Smoothed average of number of runnable threads x 1000.
+	// We multiply by thousand to avoid using floats, but preserving precision.
+	// Load is smoothed over the last 10 seconds. Instantaneous value can be read
+	// from LoadStats.NrRunning.
+	LoadAverage uint64
+	// from LoadStats.NrUninterruptible
+	LoadDAverage uint64
+}
+
+// Adapted from cadvisor's struct with the same name
+type CPULoadStats struct {
+	// Number of sleeping tasks.
+	NrSleeping uint64
+	// Number of running tasks.
+	NrRunning uint64
+	// Number of tasks in stopped state
+	NrStopped uint64
+	// Number of tasks in uninterruptible state
+	NrUninterruptible uint64
+	// Number of tasks waiting on IO
+	NrIoWait uint64
 }
 
 type HugetlbStats struct {
@@ -237,4 +261,35 @@ func isMemoryUnlimited(v uint64) bool {
 	// or the value of memory.limit_in_bytes (in cgroupv1) will be -1
 	// either way, libcontainer/cgroups will return math.MaxUint64
 	return v == math.MaxUint64
+}
+
+func addCpuLoadStats(stats *CgroupStats, reader cpuload.CpuLoadReader, name, path string) error {
+	load, err := reader.GetCpuLoad(name, path)
+	if err != nil {
+		return err
+	}
+	stats.CPULoad = &CPULoadStats{
+		NrSleeping:        load.NrSleeping,
+		NrRunning:         load.NrRunning,
+		NrStopped:         load.NrStopped,
+		NrUninterruptible: load.NrUninterruptible,
+		NrIoWait:          load.NrIoWait,
+	}
+
+	stats.CPU.LoadAverage = calculateLoadAverage(load.NrRunning, stats.CPU.LoadAverage)
+	stats.CPU.LoadDAverage = calculateLoadAverage(load.NrUninterruptible, stats.CPU.LoadDAverage)
+
+	return nil
+}
+
+// TODO: this is calculated in cadvisor based on housekeepingInterval, which is loosely related to
+// the collectionPeriod. Hardcoding it for now, but should we update to be collection period?
+var loadDecay = math.Exp(float64(-1 / 10))
+
+func calculateLoadAverage(newVal, oldAvg uint64) uint64 {
+	if oldAvg == 0 {
+		return newVal * 1000
+	}
+
+	return uint64(float64(oldAvg)*loadDecay+float64(newVal)*(1.0-loadDecay)) * 1000
 }

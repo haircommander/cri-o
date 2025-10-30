@@ -140,7 +140,13 @@ func (m *SystemdManager) ContainerCgroupStats(sbParent, containerID string) (*Cg
 		return nil, err
 	}
 
-	return libctrStatsToCgroupStats(stats), nil
+	cgStats := libctrStatsToCgroupStats(stats)
+
+	if m.cpuLoadReader != nil {
+		addCpuLoadStats(cgStats, m.cpuLoadReader, containerID, cgMgr.Path("cpu"))
+	}
+
+	return cgStats, nil
 }
 
 // RemoveContainerCgManager removes the cgroup manager for the container.
