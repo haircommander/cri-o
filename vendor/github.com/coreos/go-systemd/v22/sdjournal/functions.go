@@ -1,4 +1,4 @@
-// Copyright 2015 RedHat, Inc.
+// Copyright 2015 Red Hat, Inc.
 // Copyright 2015 CoreOS, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,9 +16,10 @@
 package sdjournal
 
 import (
-	"github.com/coreos/go-systemd/v22/internal/dlopen"
 	"sync"
 	"unsafe"
+
+	"github.com/coreos/go-systemd/v22/internal/dlopen"
 )
 
 var (

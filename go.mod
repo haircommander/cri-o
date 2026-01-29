@@ -1,4 +1,4 @@
-go 1.21
+go 1.23
 
 module github.com/cri-o/cri-o
 
@@ -27,7 +27,7 @@ require (
 	github.com/containers/ocicrypt v1.1.8
 	github.com/containers/podman/v4 v4.6.2
 	github.com/containers/storage v1.50.2
-	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/creack/pty v1.1.18
 	github.com/cri-o/ocicni v0.4.1-0.20230504062519-ad62f4ea0c11
