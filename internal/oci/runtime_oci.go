@@ -403,7 +403,9 @@ func (r *runtimeOCI) StartContainer(ctx context.Context, c *Container) error {
 		return err
 	}
 
-	c.state.Started = time.Now()
+	c.state.ModifyState(func(s *ContainerState) {
+		s.Started = time.Now()
+	})
 
 	return nil
 }
@@ -938,15 +940,17 @@ func (r *runtimeOCI) StopContainer(ctx context.Context, c *Container, timeout in
 	defer span.End()
 
 	if c.Spoofed() {
-		c.state.Status = ContainerStateStopped
-		c.state.Finished = time.Now()
+		c.state.ModifyState(func(s *ContainerState) {
+			c.state.Status = ContainerStateStopped
+			c.state.Finished = time.Now()
+		})
 
 		return nil
 	}
 
 	// The initial container process either doesn't exist, or isn't ours.
 	if err := c.Living(); err != nil {
-		c.state.Finished = time.Now()
+		c.SetFinished(time.Now())
 
 		return nil
 	}
@@ -987,12 +991,14 @@ func (r *runtimeOCI) StopLoopForContainer(ctx context.Context, c *Container, bm 
 		// Kill the exec PIDs after the main container to avoid pod lifecycle regressions:
 		// Ref: https://github.com/kubernetes/kubernetes/issues/124743
 		c.KillExecPIDs()
-		c.state.Finished = time.Now()
+
+		c.state.SetFinished(time.Now())
+
 		c.opLock.Unlock()
 		c.SetAsDoneStopping()
 	}()
 
-	if c.state.Status == ContainerStatePaused {
+	if c.state.Status() == ContainerStatePaused {
 		if _, err := r.runtimeCmd("resume", c.ID()); err != nil {
 			log.Errorf(ctx, "Failed to unpause container %s: %v", c.Name(), err)
 		}
@@ -1003,7 +1009,7 @@ func (r *runtimeOCI) StopLoopForContainer(ctx context.Context, c *Container, bm 
 		if err := c.Living(); err != nil {
 			// The initial container process either doesn't exist, or isn't ours.
 			// Set state accordingly.
-			c.state.Finished = time.Now()
+			c.state.SetFinished(time.Now())
 
 			return
 		}
@@ -1122,7 +1128,7 @@ func (r *runtimeOCI) DeleteContainer(ctx context.Context, c *Container) error {
 		return nil
 	}
 
-	if c.state.OOMKilled {
+	if c.state.OOMKilled() {
 		// Collect metric by container name
 		metrics.Instance().MetricContainersOOMCountTotalDelete(c.Name())
 	}
@@ -1143,10 +1149,12 @@ func updateContainerStatusFromExitFile(c *Container) error {
 		return fmt.Errorf("failed to find container exit file for %s: %w", c.ID(), err)
 	}
 
-	c.state.Finished, err = getFinishedTime(fi)
+	t, err := getFinishedTime(fi)
 	if err != nil {
 		return fmt.Errorf("failed to get finished time: %w", err)
 	}
+
+	c.state.SetFinished(t)
 
 	statusCodeStr, err := os.ReadFile(exitFilePath)
 	if err != nil {
@@ -1158,7 +1166,7 @@ func updateContainerStatusFromExitFile(c *Container) error {
 		return fmt.Errorf("status code conversion failed: %w", err)
 	}
 
-	c.state.ExitCode = utils.Int32Ptr(int32(statusCode))
+	c.state.SetExitCode(utils.Int32Ptr(int32(statusCode)))
 
 	return nil
 }

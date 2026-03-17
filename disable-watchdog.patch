@@ -1,0 +1,12 @@
+diff --git a/contrib/systemd/crio.service b/contrib/systemd/crio.service
+index 75d2e286c..041a84746 100644
+--- a/contrib/systemd/crio.service
++++ b/contrib/systemd/crio.service
+@@ -24,7 +24,6 @@ OOMScoreAdjust=-999
+ TimeoutStartSec=0
+ Restart=on-failure
+ RestartSec=10
+-WatchdogSec=60s
+ 
+ [Install]
+ WantedBy=multi-user.target
