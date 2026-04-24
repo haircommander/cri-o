@@ -1,0 +1,12 @@
+diff --git a/pinns/Makefile b/pinns/Makefile
+index 599ada4b1..c30dc3b68 100644
+--- a/pinns/Makefile
++++ b/pinns/Makefile
+@@ -3,7 +3,7 @@ obj = $(src:.c=.o)
+
+ STRIP ?= strip
+ override LIBS +=
+-CFLAGS ?= -std=c99 -Os -Wall -Werror -Wextra -static
++CFLAGS ?= -std=c99 -Os -Wall -Werror -Wextra
+
+ all: ../bin/pinns

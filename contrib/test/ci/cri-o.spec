@@ -32,12 +32,11 @@ Summary: Kubernetes Container Runtime Interface for OCI-based containers
 License: ASL 2.0
 URL: %{git0}
 Source0: %{name}-test.tar.gz
+Patch0: pinns-dynamic.patch
 # Assume pre-installed golang (which is the case in our CI)
 BuildRequires: make
 BuildRequires: git
 BuildRequires: glib2-devel
-BuildRequires: glibc-static
-BuildRequires: go-md2man
 BuildRequires: gpgme-devel
 BuildRequires: libassuan-devel
 BuildRequires: libseccomp-devel
@@ -78,7 +77,7 @@ export BUILDTAGS="selinux seccomp exclude_graphdriver_btrfs containers_image_ost
 make bin/crio bin/pinns
 
 # build docs
-make GO_MD2MAN=go-md2man docs
+# make GO_MD2MAN=go-md2man docs
 
 %install
 ./bin/%{service_name} \
