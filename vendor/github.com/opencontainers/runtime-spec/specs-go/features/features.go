@@ -24,6 +24,12 @@ type Features struct {
 	// Annotations contains implementation-specific annotation strings,
 	// such as the implementation version, and third-party extensions.
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// PotentiallyUnsafeConfigAnnotations the list of the potential unsafe annotations
+	// that may appear in `config.json`.
+	//
+	// A value that ends with "." is interpreted as a prefix of annotations.
+	PotentiallyUnsafeConfigAnnotations []string `json:"potentiallyUnsafeConfigAnnotations,omitempty"`
 }
 
 // Linux is specific to Linux.
@@ -41,7 +47,9 @@ type Linux struct {
 	Apparmor        *Apparmor        `json:"apparmor,omitempty"`
 	Selinux         *Selinux         `json:"selinux,omitempty"`
 	IntelRdt        *IntelRdt        `json:"intelRdt,omitempty"`
+	MemoryPolicy    *MemoryPolicy    `json:"memoryPolicy,omitempty"`
 	MountExtensions *MountExtensions `json:"mountExtensions,omitempty"`
+	NetDevices      *NetDevices      `json:"netDevices,omitempty"`
 }
 
 // Cgroup represents the "cgroup" field.
@@ -123,6 +131,21 @@ type IntelRdt struct {
 	// Unrelated to whether the host supports Intel RDT or not.
 	// Nil value means "unknown", not "false".
 	Enabled *bool `json:"enabled,omitempty"`
+	// Schemata is true if the "linux.intelRdt.enableMonitoring" field of the
+	// spec is implemented.
+	Schemata *bool `json:"schemata,omitempty"`
+	// Monitoring is true if the "linux.intelRdt.enableMonitoring" field of the
+	// spec is implemented.
+	// Nil value means "unknown", not "false".
+	Monitoring *bool `json:"monitoring,omitempty"`
+}
+
+// MemoryPolicy represents the "memoryPolicy" field.
+type MemoryPolicy struct {
+	// modes is the list of known memory policy modes, e.g., "MPOL_INTERLEAVE".
+	Modes []string `json:"modes,omitempty"`
+	// flags is the list of known memory policy mode flags, e.g., "MPOL_F_STATIC_NODES".
+	Flags []string `json:"flags,omitempty"`
 }
 
 // MountExtensions represents the "mountExtensions" field.
@@ -134,6 +157,13 @@ type MountExtensions struct {
 type IDMap struct {
 	// Enabled represents whether idmap mounts supports is compiled in.
 	// Unrelated to whether the host supports it or not.
+	// Nil value means "unknown", not "false".
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// NetDevices represents the "netDevices" field.
+type NetDevices struct {
+	// Enabled is true if network devices support is compiled in.
 	// Nil value means "unknown", not "false".
 	Enabled *bool `json:"enabled,omitempty"`
 }
