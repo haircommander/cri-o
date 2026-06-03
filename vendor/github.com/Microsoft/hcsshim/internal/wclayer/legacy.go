@@ -34,6 +34,7 @@ const (
 	UtilityVMPath       = `UtilityVM`
 	UtilityVMFilesPath  = `UtilityVM\Files`
 	RegFilesPath        = `Files\Windows\System32\config`
+	BootDirRelativePath = `\EFI\Microsoft\Boot`
 	BcdFilePath         = `UtilityVM\Files\EFI\Microsoft\Boot\BCD`
 	BootMgrFilePath     = `UtilityVM\Files\EFI\Microsoft\Boot\bootmgfw.efi`
 	ContainerBaseVhd    = `blank-base.vhdx`
@@ -154,7 +155,7 @@ func (r *legacyLayerReader) walkUntilCancelled() error {
 		}
 		return nil
 	})
-	if err == errorIterationCanceled {
+	if err == errorIterationCanceled { //nolint:errorlint // explicitly returned
 		return nil
 	}
 	if err == nil {
@@ -196,7 +197,7 @@ func findBackupStreamSize(r io.Reader) (int64, error) {
 	for {
 		hdr, err := br.Next()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				err = nil
 			}
 			return 0, err
@@ -428,7 +429,7 @@ func (w *legacyLayerWriter) initUtilityVM() error {
 		// immutable.
 		err = cloneTree(w.parentRoots[0], w.destRoot, UtilityVMFilesPath, mutatedUtilityVMFiles)
 		if err != nil {
-			return fmt.Errorf("cloning the parent utility VM image failed: %s", err)
+			return fmt.Errorf("cloning the parent utility VM image failed: %w", err)
 		}
 		w.HasUtilityVM = true
 	}
@@ -451,7 +452,7 @@ func (w *legacyLayerWriter) reset() error {
 
 		for {
 			bhdr, err := br.Next()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// end of backupstream data
 				break
 			}

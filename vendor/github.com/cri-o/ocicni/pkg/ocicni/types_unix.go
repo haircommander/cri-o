@@ -1,11 +1,12 @@
-//go:build !windows
-// +build !windows
+//go:build !windows && !freebsd
+// +build !windows,!freebsd
 
 package ocicni
 
 const (
-	// DefaultConfDir is the default place to look for CNI Network
+	// DefaultConfDir is the default place to look for CNI Network.
 	DefaultConfDir = "/etc/cni/net.d"
-	// DefaultBinDir is the default place to look for CNI config files
+
+	// DefaultBinDir is the default place to look for CNI config files.
 	DefaultBinDir = "/opt/cni/bin"
 )
