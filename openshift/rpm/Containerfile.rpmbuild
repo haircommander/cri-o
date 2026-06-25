@@ -1,0 +1,27 @@
+FROM registry.fedoraproject.org/fedora:42
+
+RUN dnf install -y \
+        rpm-build \
+        rpmdevtools \
+        dnf-plugins-core \
+        git \
+        glib2-devel \
+        glibc-static \
+        go-md2man \
+        gpgme-devel \
+        libassuan-devel \
+        libseccomp-devel \
+        systemd-devel \
+        systemd-rpm-macros \
+        go-rpm-macros \
+        make \
+        createrepo_c \
+    && dnf clean all
+
+RUN GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1) \
+    && curl -sSfL -o- "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | tar xfz - -C /usr/local
+ENV PATH=/usr/local/go/bin:$PATH
+
+RUN rpmdev-setuptree
+
+WORKDIR /root/rpmbuild

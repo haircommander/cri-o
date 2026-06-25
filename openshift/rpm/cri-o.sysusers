@@ -1,0 +1,2 @@
+g containers -
+u containers - "User for rootless containers" /nonexistent /sbin/nologin

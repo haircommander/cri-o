@@ -11,7 +11,7 @@ os::util::ensure::system_binary_exists createrepo
 
 os::build::rpm::get_nvra_vars
 
-OS_RPM_SPECFILE="$(find "${OS_ROOT}" -name *cri-o.spec)"
+OS_RPM_SPECFILE="${OS_ROOT}/contrib/test/ci/cri-o.spec"
 OS_RPM_SPEC="$(rpmspec -q --qf '%{name}\n' "${OS_RPM_SPECFILE}")"
 OS_RPM_NAME="$(echo "$OS_RPM_SPEC" | head -1)"
 
