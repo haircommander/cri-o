@@ -87,10 +87,15 @@ Requires:       podman-sequoia
 %prep
 %autosetup -Sgit -n %{name}-%{version}
 sed -i 's/\.gopathok //' Makefile
-sed -i 's/%{version}/%{version}-%{release}/' internal/version/version.go
+sed -i 's/\(const Version = "[^"]*\)"/\1-%{release}"/' internal/version/version.go
 sed -i 's/\/local//' contrib/systemd/%{service_name}.service
 
 %build
+%if 0%{?cibuild}
+export BUILDTAGS="selinux seccomp exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_ostree_stub"
+%{__make} bin/%{service_name} bin/pinns
+GO_MD2MAN=go-md2man %{__make} docs
+%else
 mkdir _output
 pushd _output
 mkdir -p src/github.com/{cri-o,opencontainers}
@@ -113,6 +118,7 @@ export VERSION=%{version}
 # build pinns and docs
 %{__make} bin/pinns
 GO_MD2MAN=go-md2man %{__make} docs
+%endif
 
 %install
 ./bin/%{service_name} \
@@ -138,7 +144,7 @@ install -dp %{buildroot}%{_libexecdir}/%{service_name}
 install -dp %{buildroot}%{_sharedstatedir}/cni/bin
 install -dp %{buildroot}%{_sysconfdir}/kubernetes/cni/net.d
 install -dp %{buildroot}%{_datadir}/containers/oci/hooks.d
-install -dp %{buildroot}/opt/cni/bin
+
 install -D -p -m 0644 openshift/rpm/unshare.json %{buildroot}%{_libexecdir}/%{service_name}/unshare.json
 
 # Install cri-o.tmpfiles
@@ -224,8 +230,7 @@ export GOPATH=%{buildroot}%{gopath}:$(pwd)/Godeps/_workspace:%{gopath}
 %dir %{_datadir}/containers
 %dir %{_datadir}/containers/oci
 %dir %{_datadir}/containers/oci/hooks.d
-%dir /opt/cni
-%dir /opt/cni/bin
+
 %dir %{_datadir}/oci-umount
 %dir %{_datadir}/oci-umount/oci-umount.d
 %dir %{_libexecdir}/%{service_name}

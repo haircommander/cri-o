@@ -11,7 +11,7 @@ os::util::ensure::system_binary_exists createrepo
 
 os::build::rpm::get_nvra_vars
 
-OS_RPM_SPECFILE="${OS_ROOT}/contrib/test/ci/cri-o.spec"
+OS_RPM_SPECFILE="${OS_ROOT}/cri-o.spec"
 OS_RPM_SPEC="$(rpmspec -q --qf '%{name}\n' "${OS_RPM_SPECFILE}")"
 OS_RPM_NAME="$(echo "$OS_RPM_SPEC" | head -1)"
 
@@ -23,9 +23,9 @@ ci_data="${OS_ROOT}/contrib/test/ci"
 chown "$(id -u):$(id -g)" "${OS_RPM_SPECFILE}" || true
 
 mkdir -p "${rpm_tmp_dir}/SOURCES"
-tar czf "${rpm_tmp_dir}/SOURCES/${OS_RPM_NAME}-test.tar.gz" \
+tar czf "${rpm_tmp_dir}/SOURCES/${OS_RPM_NAME}-${OS_RPM_VERSION}.tar.gz" \
     --owner=0 --group=0 \
-    --exclude=_output --exclude=.git --transform "s|^|${OS_RPM_NAME}-test/|rSH" \
+    --exclude=_output --exclude=.git --transform "s|^|${OS_RPM_NAME}-${OS_RPM_VERSION}/|rSH" \
     .
 cp -r "${ci_data}/." "${rpm_tmp_dir}/SOURCES"
 
@@ -44,6 +44,7 @@ dnf builddep -y "${OS_RPM_SPECFILE}" || true
 GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
 curl -sSfL -o- "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | tar xfz - -C /usr/local
 export PATH=/usr/local/go/bin:$PATH
+export GOCACHE="${rpm_tmp_dir}/go-cache"
 
 rpmbuild -ba "${OS_RPM_SPECFILE}" \
     --define "_sourcedir ${rpm_tmp_dir}/SOURCES" \
@@ -54,7 +55,8 @@ rpmbuild -ba "${OS_RPM_SPECFILE}" \
     --define "version ${OS_RPM_VERSION}" \
     --define "release ${OS_RPM_RELEASE}" \
     --define "commit ${OS_GIT_COMMIT}" \
-    --define 'debug_package %{nil}'
+    --define 'debug_package %{nil}' \
+    --define 'cibuild 1'
 
 # migrate the rpm artifacts to the output directory, must be clean or move will fail
 make clean
