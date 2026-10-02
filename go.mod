@@ -37,7 +37,7 @@ require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/go-logr/logr v1.2.4
-	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/mock v1.6.0
 	github.com/google/go-github/v50 v50.2.0
@@ -70,7 +70,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.19.0
 	golang.org/x/net v0.17.0
 	golang.org/x/sync v0.3.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/sys v0.27.0
 	google.golang.org/grpc v1.58.3
 	google.golang.org/protobuf v1.31.0
 	k8s.io/api v0.29.0-alpha.2
