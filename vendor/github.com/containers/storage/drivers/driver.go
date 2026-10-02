@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/containers/storage/internal/dedup"
+	"github.com/containers/storage/internal/tempdir"
 	"github.com/containers/storage/pkg/archive"
 	"github.com/containers/storage/pkg/directory"
+	"github.com/containers/storage/pkg/fileutils"
 	"github.com/containers/storage/pkg/idtools"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
@@ -52,8 +55,8 @@ type MountOpts struct {
 	// Mount label is the MAC Labels to assign to mount point (SELINUX)
 	MountLabel string
 	// UidMaps & GidMaps are the User Namespace mappings to be assigned to content in the mount point
-	UidMaps []idtools.IDMap //nolint: revive,golint
-	GidMaps []idtools.IDMap //nolint: revive,golint
+	UidMaps []idtools.IDMap //nolint: revive
+	GidMaps []idtools.IDMap //nolint: revive
 	Options []string
 
 	// Volatile specifies whether the container storage can be optimized
@@ -71,6 +74,30 @@ type ApplyDiffOpts struct {
 	MountLabel        string
 	IgnoreChownErrors bool
 	ForceMask         *os.FileMode
+}
+
+// ApplyDiffWithDifferOpts contains optional arguments for ApplyDiffWithDiffer methods.
+type ApplyDiffWithDifferOpts struct {
+	ApplyDiffOpts
+
+	Flags map[string]any
+}
+
+// DedupArgs contains the information to perform storage deduplication.
+type DedupArgs struct {
+	// Layers is the list of layers to deduplicate.
+	Layers []string
+
+	// Options that are passed directly to the pkg/dedup.DedupDirs function.
+	Options dedup.DedupOptions
+}
+
+// DedupResult contains the result of the Dedup() call.
+type DedupResult struct {
+	// Deduped represents the total number of bytes saved by deduplication.
+	// This value accounts also for all previously deduplicated data, not only the savings
+	// from the last run.
+	Deduped uint64
 }
 
 // InitFunc initializes the storage driver.
@@ -97,7 +124,17 @@ type ProtoDriver interface {
 	// and parent, with contents identical to the specified template layer.
 	CreateFromTemplate(id, template string, templateIDMappings *idtools.IDMappings, parent string, parentIDMappings *idtools.IDMappings, opts *CreateOpts, readWrite bool) error
 	// Remove attempts to remove the filesystem layer with this id.
+	// This is soft-deprecated and should not get any new callers; use DeferredRemove.
 	Remove(id string) error
+	// DeferredRemove is used to remove the filesystem layer with this id.
+	// This removal happen immediately (the layer is no longer usable),
+	// but physically deleting the files may be deferred.
+	// Caller MUST call returned Cleanup function EVEN IF the function returns an error.
+	DeferredRemove(id string) (tempdir.CleanupTempDirFunc, error)
+	// GetTempDirRootDirs returns the root directories for temporary directories.
+	// Multiple directories may be returned when drivers support different filesystems
+	// for layers (e.g., overlay with imageStore vs home directory).
+	GetTempDirRootDirs() []string
 	// Get returns the mountpoint for the layered filesystem referred
 	// to by this id. You can optionally specify a mountLabel or "".
 	// Optionally it gets the mappings used to create the layer.
@@ -131,6 +168,8 @@ type ProtoDriver interface {
 	// AdditionalImageStores returns additional image stores supported by the driver
 	// This API is experimental and can be changed without bumping the major version number.
 	AdditionalImageStores() []string
+	// Dedup performs deduplication of the driver's storage.
+	Dedup(DedupArgs) (DedupResult, error)
 }
 
 // DiffDriver is the interface to use to implement graph diffs
@@ -165,8 +204,9 @@ type LayerIDMapUpdater interface {
 	UpdateLayerIDMap(id string, toContainer, toHost *idtools.IDMappings, mountLabel string) error
 
 	// SupportsShifting tells whether the driver support shifting of the UIDs/GIDs in a
-	// image and it is not required to Chown the files when running in an user namespace.
-	SupportsShifting() bool
+	// image to the provided mapping and it is not required to Chown the files when running in
+	// an user namespace.
+	SupportsShifting(uidmap, gidmap []idtools.IDMap) bool
 }
 
 // Driver is the interface for layered/snapshot file system drivers.
@@ -181,14 +221,22 @@ type Driver interface {
 type DriverWithDifferOutput struct {
 	Differ             Differ
 	Target             string
-	Size               int64
+	Size               int64 // Size of the uncompressed layer, -1 if unknown. Must be known if UncompressedDigest is set.
 	UIDs               []uint32
 	GIDs               []uint32
 	UncompressedDigest digest.Digest
+	CompressedDigest   digest.Digest
 	Metadata           string
 	BigData            map[string][]byte
-	TarSplit           []byte
-	TOCDigest          digest.Digest
+	// TarSplit is owned by the [DriverWithDifferOutput], and must be closed by calling one of
+	// [Store.ApplyStagedLayer]/[Store.CleanupStagedLayer].  It is nil if not available.
+	TarSplit  *os.File
+	TOCDigest digest.Digest
+	// RootDirMode is the mode of the root directory of the layer, if specified.
+	RootDirMode *os.FileMode
+	// Artifacts is a collection of additional artifacts
+	// generated by the differ that the storage driver can use.
+	Artifacts map[string]any
 }
 
 type DifferOutputFormat int
@@ -197,21 +245,43 @@ const (
 	// DifferOutputFormatDir means the output is a directory and it will
 	// keep the original layout.
 	DifferOutputFormatDir = iota
-	// DifferOutputFormatFlat will store the files by their checksum, in the form
-	// checksum[0:2]/checksum[2:]
+	// DifferOutputFormatFlat will store the files by their checksum, per
+	// pkg/chunked/internal/composefs.RegularFilePathForValidatedDigest.
 	DifferOutputFormatFlat
 )
 
-// DifferOptions overrides how the differ work
+// DifferFsVerity is a part of the experimental Differ interface and should not be used from outside of c/storage.
+// It configures the fsverity requirement.
+type DifferFsVerity int
+
+const (
+	// DifferFsVerityDisabled means no fs-verity is used
+	DifferFsVerityDisabled = iota
+
+	// DifferFsVerityIfAvailable means fs-verity is used when supported by
+	// the underlying kernel and filesystem.
+	DifferFsVerityIfAvailable
+
+	// DifferFsVerityRequired means fs-verity is required.  Note this is not
+	// currently set or exposed by the overlay driver.
+	DifferFsVerityRequired
+)
+
+// DifferOptions is a part of the experimental Differ interface and should not be used from outside of c/storage.
+// It overrides how the differ works.
 type DifferOptions struct {
 	// Format defines the destination directory layout format
 	Format DifferOutputFormat
+
+	// UseFsVerity defines whether fs-verity is used
+	UseFsVerity DifferFsVerity
 }
 
 // Differ defines the interface for using a custom differ.
 // This API is experimental and can be changed without bumping the major version number.
 type Differ interface {
 	ApplyDiff(dest string, options *archive.TarOptions, differOpts *DifferOptions) (DriverWithDifferOutput, error)
+	Close() error
 }
 
 // DriverWithDiffer is the interface for direct diff access.
@@ -219,10 +289,10 @@ type Differ interface {
 type DriverWithDiffer interface {
 	Driver
 	// ApplyDiffWithDiffer applies the changes using the callback function.
-	// If id is empty, then a staging directory is created.  The staging directory is guaranteed to be usable with ApplyDiffFromStagingDirectory.
-	ApplyDiffWithDiffer(id, parent string, options *ApplyDiffOpts, differ Differ) (output DriverWithDifferOutput, err error)
-	// ApplyDiffFromStagingDirectory applies the changes using the specified staging directory.
-	ApplyDiffFromStagingDirectory(id, parent, stagingDirectory string, diffOutput *DriverWithDifferOutput, options *ApplyDiffOpts) error
+	// The staging directory created by this function is guaranteed to be usable with ApplyDiffFromStagingDirectory.
+	ApplyDiffWithDiffer(options *ApplyDiffWithDifferOpts, differ Differ) (output DriverWithDifferOutput, err error)
+	// ApplyDiffFromStagingDirectory applies the changes using the diffOutput target directory.
+	ApplyDiffFromStagingDirectory(id, parent string, diffOutput *DriverWithDifferOutput, options *ApplyDiffWithDifferOpts) error
 	// CleanupStagingDirectory cleanups the staging directory.  It can be used to cleanup the staging directory on errors
 	CleanupStagingDirectory(stagingDirectory string) error
 	// DifferTarget gets the location where files are stored for the layer.
@@ -269,8 +339,8 @@ type AdditionalLayerStoreDriver interface {
 	Driver
 
 	// LookupAdditionalLayer looks up additional layer store by the specified
-	// digest and ref and returns an object representing that layer.
-	LookupAdditionalLayer(d digest.Digest, ref string) (AdditionalLayer, error)
+	// TOC digest and ref and returns an object representing that layer.
+	LookupAdditionalLayer(tocDigest digest.Digest, ref string) (AdditionalLayer, error)
 
 	// LookupAdditionalLayer looks up additional layer store by the specified
 	// ID and returns an object representing that layer.
@@ -348,8 +418,6 @@ type Options struct {
 	ImageStore          string
 	DriverPriority      []string
 	DriverOptions       []string
-	UIDMaps             []idtools.IDMap
-	GIDMaps             []idtools.IDMap
 	ExperimentalEnabled bool
 }
 
@@ -443,7 +511,7 @@ func ScanPriorDrivers(root string) map[string]bool {
 
 	for driver := range drivers {
 		p := filepath.Join(root, driver)
-		if _, err := os.Stat(p); err == nil {
+		if err := fileutils.Exists(p); err == nil {
 			driversMap[driver] = true
 		}
 	}
@@ -463,7 +531,7 @@ func driverPut(driver ProtoDriver, id string, mainErr *error) {
 		if *mainErr == nil {
 			*mainErr = err
 		} else {
-			logrus.Errorf(err.Error())
+			logrus.Error(err)
 		}
 	}
 }
